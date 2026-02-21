@@ -6,7 +6,7 @@ import { PostCard } from '@/components/feed/PostCard';
 import { AppShell } from '@/components/layout/AppShell';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { ComposePostModal } from '@/components/feed/ComposePostModal';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -23,6 +23,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
     const [eventData, setEventData] = useState<any>(null);
     const [replies, setReplies] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
     // Get current user profile for the composer avatar
@@ -45,6 +46,22 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                 await matrixClient.joinRoom(ROOM_ID);
             } catch (e) {
                 /* ignore */
+            }
+
+            let room = matrixClient.getRoom(ROOM_ID);
+            let retries = 0;
+            if (!room || matrixClient.getSyncState() !== 'PREPARED') {
+                setLoadingMessage("Sincronizando con la red Matrix...");
+                while ((!room || matrixClient.getSyncState() !== 'PREPARED') && retries < 5) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    room = matrixClient.getRoom(ROOM_ID);
+                    retries++;
+                }
+                setLoadingMessage(null);
+            }
+
+            if (!room) {
+                throw new Error('Room not found. Please try again or ensure you are joined.');
             }
 
             // 1. Fetch main event
@@ -84,6 +101,17 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             fetchEventAndReplies();
         }
     }, [eventId]);
+
+    if (loadingMessage) {
+        return (
+            <AppShell>
+                <div className="p-12 flex flex-col items-center justify-center text-neutral-500 space-y-4 min-h-[50vh]">
+                    <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                    <p>{loadingMessage}</p>
+                </div>
+            </AppShell>
+        );
+    }
 
     if (loading) {
         return (

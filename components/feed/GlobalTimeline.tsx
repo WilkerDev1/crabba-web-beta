@@ -21,6 +21,7 @@ interface GlobalTimelineProps {
 export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }: GlobalTimelineProps) {
     const [events, setEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -56,7 +57,18 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
 
             // Simple fetch of last 20 messages from room
             // In production we would use a proper pagination hook or library support
-            const room = matrixClient.getRoom(ROOM_ID);
+            let room = matrixClient.getRoom(ROOM_ID);
+            let retries = 0;
+
+            if (!room || matrixClient.getSyncState() !== 'PREPARED') {
+                setLoadingMessage("Sincronizando con la red Matrix...");
+                while ((!room || matrixClient.getSyncState() !== 'PREPARED') && retries < 5) {
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    room = matrixClient.getRoom(ROOM_ID);
+                    retries++;
+                }
+                setLoadingMessage(null);
+            }
 
             if (room) {
                 // Room already synced
@@ -175,6 +187,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
     const handleRefresh = () => {
         setRefreshTrigger(prev => prev + 1);
     };
+
+    if (loadingMessage) {
+        return (
+            <div className="p-12 flex flex-col items-center justify-center text-neutral-500 space-y-4">
+                <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+                <p>{loadingMessage}</p>
+            </div>
+        );
+    }
 
     if (loading) {
         return (
