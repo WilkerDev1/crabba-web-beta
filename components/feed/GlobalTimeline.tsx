@@ -58,15 +58,49 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
             // Simple fetch of last 20 messages from room
             // In production we would use a proper pagination hook or library support
             let room = matrixClient.getRoom(ROOM_ID);
-            let retries = 0;
 
             if (!room || matrixClient.getSyncState() !== 'PREPARED') {
                 setLoadingMessage("Sincronizando con la red Matrix...");
-                while ((!room || matrixClient.getSyncState() !== 'PREPARED') && retries < 5) {
-                    await new Promise(resolve => setTimeout(resolve, 1500));
-                    room = matrixClient.getRoom(ROOM_ID);
-                    retries++;
-                }
+
+                await new Promise<void>((resolve) => {
+                    let retries = 0;
+
+                    const checkRoom = () => {
+                        const r = matrixClient.getRoom(ROOM_ID);
+                        if (r && matrixClient.getSyncState() === 'PREPARED') {
+                            room = r;
+                            cleanup();
+                            resolve();
+                            return true;
+                        }
+                        return false;
+                    };
+
+                    const syncListener = (state: string) => {
+                        if (state === 'PREPARED') {
+                            checkRoom();
+                        }
+                    };
+
+                    const pollInterval = setInterval(() => {
+                        if (!checkRoom()) {
+                            retries++;
+                            if (retries >= 4) {
+                                cleanup();
+                                resolve();
+                            }
+                        }
+                    }, 500);
+
+                    const cleanup = () => {
+                        clearInterval(pollInterval);
+                        matrixClient.removeListener("sync" as any, syncListener);
+                    };
+
+                    matrixClient.on("sync" as any, syncListener);
+                    checkRoom();
+                });
+
                 setLoadingMessage(null);
             }
 
