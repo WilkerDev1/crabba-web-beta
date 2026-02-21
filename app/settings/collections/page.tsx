@@ -17,6 +17,7 @@ export default function CollectionsSettingsPage() {
     const [saving, setSaving] = useState(false);
     const [collections, setCollections] = useState<any[]>([]);
     const [user, setUser] = useState<any>(null);
+    const [profile, setProfile] = useState<any>(null);
 
     // New Collection Form State
     const [name, setName] = useState('');
@@ -26,17 +27,33 @@ export default function CollectionsSettingsPage() {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
                 setUser(user);
+
+                const { data: profileData } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', user.id)
+                    .single();
+
+                if (profileData && !profileData.is_creator) {
+                    router.push('/fanbox/onboarding');
+                    return;
+                }
+
+                setProfile(profileData);
+
                 const { data } = await supabase
                     .from('collections')
                     .select('*')
                     .eq('creator_id', user.id)
                     .order('created_at', { ascending: false });
                 if (data) setCollections(data);
+            } else {
+                router.push('/login');
             }
             setLoading(false);
         };
         fetchCollections();
-    }, [supabase]);
+    }, [supabase, router]);
 
     const handleCreateCollection = async (e: React.FormEvent) => {
         e.preventDefault();

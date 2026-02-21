@@ -20,6 +20,7 @@ interface Profile {
     avatar_url: string | null;
     banner_url: string | null;
     created_at: string;
+    is_creator: boolean;
 }
 
 export default function UserProfilePage({ params }: { params: Promise<{ username: string }> }) {
@@ -241,12 +242,14 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                         >
                             Fanbox
                         </TabsTrigger>
-                        <TabsTrigger
-                            value="plans"
-                            className="rounded-none border-b-2 border-transparent data-[state=active]:border-pink-500 data-[state=active]:bg-transparent data-[state=active]:text-pink-500 px-8 py-4 text-neutral-400"
-                        >
-                            Plans
-                        </TabsTrigger>
+                        {profile.is_creator && (
+                            <TabsTrigger
+                                value="plans"
+                                className="rounded-none border-b-2 border-transparent data-[state=active]:border-pink-500 data-[state=active]:bg-transparent data-[state=active]:text-pink-500 px-8 py-4 text-neutral-400"
+                            >
+                                Plans
+                            </TabsTrigger>
+                        )}
                     </TabsList>
 
                     {/* Tab 1: Posts (Filtered Timeline) */}
@@ -296,27 +299,29 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                     </TabsContent>
 
                     {/* Tab 3: Plans (Subscription Tiers placeholder) */}
-                    <TabsContent value="plans" className="p-6">
-                        {plans.length === 0 ? (
-                            <div className="text-center text-neutral-500 py-12">No plans available yet.</div>
-                        ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                                {plans.map(plan => (
-                                    <Card key={plan.id} className="bg-neutral-900 border-neutral-800 p-6 flex flex-col relative overflow-hidden">
-                                        <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
-                                        <div className="text-3xl font-bold text-blue-500 mb-4">${plan.price} <span className="text-lg text-neutral-400 font-normal">/ month</span></div>
-                                        {plan.description && <p className="text-sm text-neutral-300 mb-4">{plan.description}</p>}
-                                        <ul className="text-sm text-neutral-300 space-y-2 mb-6 flex-1">
-                                            {plan.perks?.map((perk: string, i: number) => (
-                                                <li key={i}>• {perk}</li>
-                                            ))}
-                                        </ul>
-                                        <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold">Subscribe</Button>
-                                    </Card>
-                                ))}
-                            </div>
-                        )}
-                    </TabsContent>
+                    {profile.is_creator && (
+                        <TabsContent value="plans" className="p-6">
+                            {plans.length === 0 ? (
+                                <div className="text-center text-neutral-500 py-12">No plans available yet.</div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                                    {plans.map(plan => (
+                                        <Card key={plan.id} className="bg-neutral-900 border-neutral-800 p-6 flex flex-col relative overflow-hidden">
+                                            <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
+                                            <div className="text-3xl font-bold text-blue-500 mb-4">${plan.price} <span className="text-lg text-neutral-400 font-normal">/ month</span></div>
+                                            {plan.description && <p className="text-sm text-neutral-300 mb-4">{plan.description}</p>}
+                                            <ul className="text-sm text-neutral-300 space-y-2 mb-6 flex-1">
+                                                {plan.perks?.map((perk: string, i: number) => (
+                                                    <li key={i}>• {perk}</li>
+                                                ))}
+                                            </ul>
+                                            <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold">Subscribe</Button>
+                                        </Card>
+                                    ))}
+                                </div>
+                            )}
+                        </TabsContent>
+                    )}
                 </Tabs>
             </div>
         </AppShell>

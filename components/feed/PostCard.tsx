@@ -4,6 +4,7 @@ import { MessageSquare, Heart, Repeat, Share, Loader2 } from 'lucide-react';
 import { useMatrixProfile } from '@/hooks/useMatrixProfile';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { Trash2 } from 'lucide-react';
 import { ComposePostModal } from '@/components/feed/ComposePostModal';
 import { LockedContentOverlay } from '@/components/feed/LockedContentOverlay';
 
@@ -20,6 +21,8 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
     const [repostCount, setRepostCount] = useState<number>(0);
     const [isLiking, setIsLiking] = useState<boolean>(false);
     const [isReposting, setIsReposting] = useState<boolean>(false);
+    const [isDeleting, setIsDeleting] = useState<boolean>(false);
+    const [isDeleted, setIsDeleted] = useState<boolean>(false);
 
     const content = event.getContent();
     const senderId = event.getSender();
@@ -66,9 +69,10 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
         imageUrl = matrixClient.mxcUrlToHttp(content.url);
     }
 
-    // Attempt to fetch relation counts natively
     useEffect(() => {
         if (!matrixClient || !roomId || !eventId || isNested) return;
+
+        const myUserId = matrixClient.getUserId();
 
         const fetchRelations = async () => {
             try {
@@ -77,7 +81,6 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
                 if (reactions?.events) {
                     setLikeCount(reactions.events.length);
                     // Check if current user liked
-                    const myUserId = matrixClient.getUserId();
                     if (reactions.events.some((e: any) => e.getSender() === myUserId)) {
                         setLiked(true);
                     }
@@ -190,6 +193,24 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
             setIsReposting(false);
         }
     };
+
+    const handleDelete = async () => {
+        if (!matrixClient || isDeleting || !window.confirm("Are you sure you want to delete this post?")) return;
+        setIsDeleting(true);
+        try {
+            await matrixClient.redactEvent(roomId, eventId);
+            setIsDeleted(true);
+        } catch (error) {
+            console.error("Failed to delete post:", error);
+            alert("Could not delete post.");
+            setIsDeleting(false);
+        }
+    };
+
+    if (isDeleted) return null;
+
+    const myUserId = matrixClient?.getUserId();
+    const canDelete = myUserId === senderId;
 
     return (
         <div className={`border-b border-neutral-800 p-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}>
@@ -305,6 +326,14 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
                                 onClick={handleLike}
                             />
                             <ActionIcon icon={<Share className="w-4 h-4" />} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
+                            {canDelete && (
+                                <ActionIcon
+                                    icon={isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                    color="group-hover:text-red-500"
+                                    bg="group-hover:bg-red-500/10"
+                                    onClick={handleDelete}
+                                />
+                            )}
                         </div>
                     )}
                 </div>

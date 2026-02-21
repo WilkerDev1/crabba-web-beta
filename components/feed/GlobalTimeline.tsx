@@ -60,6 +60,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                 const timeline = room.getLiveTimeline();
                 const events = timeline.getEvents().slice(-100).reverse(); // Fetch more to allow filtering
                 const messageEvents = events.filter((e: any) => {
+                    if (e.isRedacted() || e.getType() === 'm.room.redaction') return false;
+
                     const isMsg = e.getType() === 'm.room.message';
                     if (!isMsg) return false;
 

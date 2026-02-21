@@ -18,6 +18,7 @@ export default function PlansSettingsPage() {
     const [saving, setSaving] = useState(false);
     const [plans, setPlans] = useState<any[]>([]);
     const [user, setUser] = useState<any>(null);
+    const [profile, setProfile] = useState<any>(null);
 
     // New Plan Form State
     const [name, setName] = useState('');
@@ -30,17 +31,33 @@ export default function PlansSettingsPage() {
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
                 setUser(user);
+
+                const { data: profileData } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', user.id)
+                    .single();
+
+                if (profileData && !profileData.is_creator) {
+                    router.push('/fanbox/onboarding');
+                    return;
+                }
+
+                setProfile(profileData);
+
                 const { data } = await supabase
                     .from('creator_plans')
                     .select('*')
                     .eq('creator_id', user.id)
                     .order('price', { ascending: true });
                 if (data) setPlans(data);
+            } else {
+                router.push('/login');
             }
             setLoading(false);
         };
         fetchPlans();
-    }, [supabase]);
+    }, [supabase, router]);
 
     const handleCreatePlan = async (e: React.FormEvent) => {
         e.preventDefault();
