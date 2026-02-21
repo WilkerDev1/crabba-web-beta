@@ -5,6 +5,7 @@ import { useMatrixProfile } from '@/hooks/useMatrixProfile';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Trash2 } from 'lucide-react';
+import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
 import { ComposePostModal } from '@/components/feed/ComposePostModal';
 import { LockedContentOverlay } from '@/components/feed/LockedContentOverlay';
 
@@ -23,6 +24,7 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
     const [isReposting, setIsReposting] = useState<boolean>(false);
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
     const [isDeleted, setIsDeleted] = useState<boolean>(false);
+    const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
 
     const content = event.getContent();
     const senderId = event.getSender();
@@ -194,15 +196,21 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
         }
     };
 
-    const handleDelete = async () => {
-        if (!matrixClient || isDeleting || !window.confirm("Are you sure you want to delete this post?")) return;
+    const handleDeleteClick = () => {
+        if (!matrixClient || isDeleting) return;
+        setShowDeleteModal(true);
+    };
+
+    const confirmDelete = async () => {
         setIsDeleting(true);
         try {
             await matrixClient.redactEvent(roomId, eventId);
             setIsDeleted(true);
+            setShowDeleteModal(false);
         } catch (error) {
             console.error("Failed to delete post:", error);
             alert("Could not delete post.");
+        } finally {
             setIsDeleting(false);
         }
     };
@@ -331,13 +339,20 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
                                     icon={isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                     color="group-hover:text-red-500"
                                     bg="group-hover:bg-red-500/10"
-                                    onClick={handleDelete}
+                                    onClick={handleDeleteClick}
                                 />
                             )}
                         </div>
                     )}
                 </div>
             </div>
+
+            <ConfirmDeleteModal
+                open={showDeleteModal}
+                onOpenChange={setShowDeleteModal}
+                onConfirm={confirmDelete}
+                isDeleting={isDeleting}
+            />
         </div>
     );
 }
