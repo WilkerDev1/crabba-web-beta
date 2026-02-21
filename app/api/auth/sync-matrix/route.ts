@@ -8,7 +8,9 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const MATRIX_HOMESERVER = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
+const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
+const MATRIX_HOMESERVER = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
+const isNgrok = MATRIX_HOMESERVER.includes('ngrok-free.app') || MATRIX_HOMESERVER.includes('ngrok-free.dev') || MATRIX_HOMESERVER.includes('ngrok.io');
 const MATRIX_DOMAIN = process.env.NEXT_PUBLIC_MATRIX_DOMAIN || 'localhost'
 
 export async function POST(request: Request) {
@@ -40,7 +42,12 @@ export async function POST(request: Request) {
             }
 
             // STEP 1: Fetch Nonce
-            const nonceRes = await fetch(`${MATRIX_HOMESERVER}/_synapse/admin/v1/register`);
+            const headers1: Record<string, string> = {};
+            if (isNgrok) headers1['ngrok-skip-browser-warning'] = 'true';
+
+            const nonceRes = await fetch(`${MATRIX_HOMESERVER}/_synapse/admin/v1/register`, {
+                headers: headers1
+            });
             if (!nonceRes.ok) {
                 const nonceError = await nonceRes.json();
                 throw new Error(`Failed to fetch Synapse nonce: ${nonceError.error || nonceRes.statusText}`);
@@ -61,11 +68,14 @@ export async function POST(request: Request) {
             const mac = hmac.digest('hex');
 
             // STEP 3: Execute Registration
+            const headers3: Record<string, string> = {
+                'Content-Type': 'application/json',
+            };
+            if (isNgrok) headers3['ngrok-skip-browser-warning'] = 'true';
+
             const registerRes = await fetch(`${MATRIX_HOMESERVER}/_synapse/admin/v1/register`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: headers3,
                 body: JSON.stringify({
                     nonce: nonce,
                     username: localpart,

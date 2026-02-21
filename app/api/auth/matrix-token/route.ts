@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 
-const MATRIX_HOMESERVER = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
+const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
+const MATRIX_HOMESERVER = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
+const isNgrok = MATRIX_HOMESERVER.includes('ngrok-free.app') || MATRIX_HOMESERVER.includes('ngrok-free.dev') || MATRIX_HOMESERVER.includes('ngrok.io');
 
 export async function GET() {
     try {
@@ -40,11 +42,16 @@ export async function GET() {
         }
 
         // 3. Login to Matrix Server-Side
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+        };
+        if (isNgrok) {
+            headers['ngrok-skip-browser-warning'] = 'true';
+        }
+
         const matrixLoginRes = await fetch(`${MATRIX_HOMESERVER}/_matrix/client/v3/login`, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers: headers,
             body: JSON.stringify({
                 type: 'm.login.password',
                 identifier: {

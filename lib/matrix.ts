@@ -1,6 +1,7 @@
 import type { MatrixClient } from 'matrix-js-sdk';
 
-const MATRIX_BASE_URL = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
+const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
+const MATRIX_BASE_URL = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
 
 // Global reference for development HMR to prevent multiple instances
 const globalForMatrix = global as unknown as {
@@ -44,6 +45,28 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
 
             let client: MatrixClient;
 
+            const customFetchFn = (input: string | URL | globalThis.Request, init?: RequestInit) => {
+                const newInit = init || {};
+
+                let fetchUrl = '';
+                if (typeof input === 'string') {
+                    fetchUrl = input;
+                } else if (input instanceof URL) {
+                    fetchUrl = input.toString();
+                } else if (typeof Request !== 'undefined' && input instanceof Request) {
+                    fetchUrl = input.url;
+                }
+
+                if (fetchUrl.includes('ngrok-free.app') || fetchUrl.includes('ngrok-free.dev') || fetchUrl.includes('ngrok.io')) {
+                    newInit.headers = {
+                        ...newInit.headers,
+                        "ngrok-skip-browser-warning": "true",
+                    };
+                }
+
+                return fetch(input, newInit);
+            };
+
             if (accessToken && userId && deviceId) {
                 console.log('💾 Restoring Matrix session from LocalStorage...');
                 client = createClient({
@@ -51,6 +74,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                     accessToken,
                     userId,
                     deviceId,
+                    fetchFn: customFetchFn,
                 });
             } else {
                 console.log('🆕 No Matrix session found in LocalStorage, fetching from Identity Bridge...');
@@ -73,6 +97,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                     accessToken: data.access_token,
                     userId: data.user_id,
                     deviceId: data.device_id,
+                    fetchFn: customFetchFn,
                 });
 
                 if (typeof window !== 'undefined') {
