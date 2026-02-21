@@ -110,7 +110,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
 
             // Start client to sync
             if (!client.clientRunning) {
-                await client.startClient({ initialSyncLimit: 100 });
+                await client.startClient({ initialSyncLimit: 20 });
             }
 
             globalForMatrix.matrixClient = client;

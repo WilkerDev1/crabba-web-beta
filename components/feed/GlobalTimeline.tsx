@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { getMatrixClient } from '@/lib/matrix';
 import { PostCard } from './PostCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { RefreshCcw } from 'lucide-react';
+import { RefreshCcw, Loader2 } from 'lucide-react';
 
 import { ComposePost } from './ComposePost';
 
@@ -21,9 +21,12 @@ interface GlobalTimelineProps {
 export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }: GlobalTimelineProps) {
     const [events, setEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [client, setClient] = useState<any>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const observerTarget = useRef<HTMLDivElement>(null);
 
     const fetchMessages = async () => {
         // Only set loading on first load to avoid flickering on refresh
@@ -86,12 +89,16 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                         if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
                     }
 
-                    // By default, if filterType is 'all' or undefined, maybe hide plain replies?
-                    // Optional: if (filterType === 'all' && content['m.relates_to']) return false; (Keeping simple for now)
+                    if (filterType === 'all') {
+                        // Ensure standard messages OR reposts pass through
+                        // A repost is typically a standard message, but we explicitly allow it
+                    }
 
                     return true;
                 });
                 setEvents(messageEvents);
+
+                // If less than 20 events returned initially, we might be at the end, but matrix events slice might just be small.
             } else {
                 // Room not found in initial sync, try to join or peek?
                 // For this scaffold, we assume the user is already joined.
@@ -120,6 +127,50 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
     useEffect(() => {
         fetchMessages();
     }, [refreshTrigger]);
+
+    const loadMore = useCallback(async () => {
+        if (!client || !hasMore || loadingMore) return;
+        setLoadingMore(true);
+
+        try {
+            const room = client.getRoom(ROOM_ID);
+            if (!room) throw new Error('Room not found');
+
+            const oldLength = room.getLiveTimeline().getEvents().length;
+            await client.scrollback(room, 20);
+            const newLength = room.getLiveTimeline().getEvents().length;
+
+            if (newLength === oldLength) {
+                // No new events fetched
+                setHasMore(false);
+            } else {
+                // Trigger re-render of messages
+                setRefreshTrigger(prev => prev + 1);
+            }
+        } catch (err) {
+            console.error("Failed to load more messages:", err);
+            setHasMore(false);
+        } finally {
+            setLoadingMore(false);
+        }
+    }, [client, hasMore, loadingMore]);
+
+    useEffect(() => {
+        const observer = new IntersectionObserver(
+            entries => {
+                if (entries[0].isIntersecting && hasMore && !loadingMore && !loading) {
+                    loadMore();
+                }
+            },
+            { threshold: 0.1 }
+        );
+
+        if (observerTarget.current) {
+            observer.observe(observerTarget.current);
+        }
+
+        return () => observer.disconnect();
+    }, [hasMore, loadingMore, loading, loadMore]);
 
     const handleRefresh = () => {
         setRefreshTrigger(prev => prev + 1);
@@ -174,6 +225,18 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
             {events.map((event) => (
                 <PostCard key={event.getId()} event={event} matrixClient={client} />
             ))}
+
+            <div ref={observerTarget} className="py-8 text-center text-neutral-500 text-sm">
+                {loadingMore && (
+                    <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Loading more posts...</span>
+                    </div>
+                )}
+                {!hasMore && events.length > 0 && (
+                    <span>You've reached the beginning of the timeline.</span>
+                )}
+            </div>
         </div>
     );
 }
