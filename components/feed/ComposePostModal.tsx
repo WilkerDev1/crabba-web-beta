@@ -15,7 +15,7 @@ import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
 import { Loader2, Image as ImageIcon, X, Lock } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
-import { getMatrixClient } from '../../lib/matrix';
+import { getMatrixClient, sendEventWithRetry } from '../../lib/matrix';
 import { createClient } from '../../lib/supabase/client';
 
 interface ComposePostModalProps {
@@ -190,7 +190,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                     msgtype: "m.text",
                     body: body,
                 });
-                await matrixClient.sendEvent(currentRoomId, "m.room.message" as any, msgPayload);
+                await sendEventWithRetry(currentRoomId, "m.room.message", msgPayload);
 
             } else {
                 // Image Upload Flow
@@ -212,7 +212,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                         size: selectedImage.size
                     }
                 });
-                await matrixClient.sendEvent(currentRoomId, "m.room.message" as any, imgPayload);
+                await sendEventWithRetry(currentRoomId, "m.room.message", imgPayload);
             }
 
             setContent('');

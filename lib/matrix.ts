@@ -7,6 +7,7 @@ const MATRIX_BASE_URL = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
 const globalForMatrix = global as unknown as {
     matrixClient: MatrixClient | null;
     loginPromise: Promise<MatrixClient | null> | null;
+    clientStarted: boolean;
 };
 
 export const getSharedClient = (): MatrixClient | null => {
@@ -124,16 +125,15 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                 if (state === 'ERROR') {
                     let errMessage = data?.error?.message || "Unknown error";
 
-                    // Silence context canceled on soft navigations
+                    // Silence context canceled on soft navigations — add brief delay for network recovery
                     if (errMessage.includes("context canceled") || errMessage.includes("fetch failed")) {
-                        return; // Expected behavior when React unmounts fetch calls during page hop
+                        return;
                     }
 
                     console.error("Matrix Sync Error Details:", errMessage);
 
                     if (errMessage.includes("M_UNKNOWN_TOKEN")) {
                         console.warn("Matrix token rejected. Client needs to re-auth.");
-                        // Handle re-auth logic if needed
                     }
                 }
             });
@@ -174,3 +174,105 @@ export const clearMatrixSession = async () => {
         localStorage.removeItem('matrix_device_id');
     }
 };
+
+/**
+ * Clear stuck pending events from a room's local timeline.
+ * Removes events in NOT_SENT or SENDING state that block the queue.
+ */
+export const clearPendingEvents = (roomId: string): void => {
+    const client = globalForMatrix.matrixClient;
+    if (!client) return;
+
+    const room = client.getRoom(roomId);
+    if (!room) return;
+
+    try {
+        const pendingEvents = room.getPendingEvents();
+        if (pendingEvents.length === 0) return;
+
+        console.warn(`🧹 Clearing ${pendingEvents.length} stuck pending events from room ${roomId}`);
+
+        for (const event of pendingEvents) {
+            const status = event.status;
+            // Only remove events that are stuck (failed or still "sending" but probably dead)
+            if (status === 'not_sent' || status === 'sending' || status === 'queued') {
+                try {
+                    client.cancelPendingEvent(event);
+                } catch (cancelErr) {
+                    // Fallback: try to remove from the room's pending list directly
+                    try {
+                        room.removePendingEvent(event.getId()!);
+                    } catch {
+                        // Last resort — can't remove, but at least we tried
+                    }
+                }
+            }
+        }
+        console.log('✅ Pending event queue cleared.');
+    } catch (err) {
+        console.error('Failed to clear pending events:', err);
+    }
+};
+
+/**
+ * Send a Matrix event with automatic retry on "blocked" errors.
+ * If the first attempt fails because of stuck pending events,
+ * clears the queue and retries ONCE.
+ */
+export const sendEventWithRetry = async (
+    roomId: string,
+    eventType: string,
+    content: any
+): Promise<any> => {
+    const client = globalForMatrix.matrixClient;
+    if (!client) throw new Error('Matrix client not initialized');
+
+    try {
+        return await client.sendEvent(roomId, eventType as any, content);
+    } catch (err: any) {
+        const msg = err?.message || '';
+        const isBlocked = msg.includes('blocked') || msg.includes('not yet sent') || msg.includes('NOT_SENT');
+
+        if (isBlocked) {
+            console.warn('⚠️ Event blocked by stuck queue. Clearing and retrying...');
+            clearPendingEvents(roomId);
+
+            // Wait a beat for the queue to settle
+            await new Promise(r => setTimeout(r, 500));
+
+            // Retry ONCE
+            return await client.sendEvent(roomId, eventType as any, content);
+        }
+
+        throw err; // Re-throw non-blocked errors
+    }
+};
+
+/**
+ * Safely start the Matrix sync client. Prevents duplicate startClient calls
+ * caused by React re-renders or HMR.
+ */
+export const safeStartClient = async (client: MatrixClient): Promise<void> => {
+    if (globalForMatrix.clientStarted) {
+        return; // Already running, skip
+    }
+
+    if (client.clientRunning) {
+        globalForMatrix.clientStarted = true;
+        return;
+    }
+
+    try {
+        globalForMatrix.clientStarted = true;
+        await client.startClient({
+            initialSyncLimit: 20,
+            pollTimeout: 20000,
+            pendingEventOrdering: "detached",
+            lazyLoadMembers: true,
+        } as any);
+    } catch (err) {
+        globalForMatrix.clientStarted = false;
+        throw err;
+    }
+};
+

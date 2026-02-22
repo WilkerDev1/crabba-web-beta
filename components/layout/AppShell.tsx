@@ -8,7 +8,7 @@ import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { createClient } from '../../lib/supabase/client';
-import { clearMatrixSession, getMatrixClient } from '../../lib/matrix';
+import { clearMatrixSession, getMatrixClient, safeStartClient } from '../../lib/matrix';
 import { ComposePostModal } from '../feed/ComposePostModal';
 
 interface AppShellProps {
@@ -46,16 +46,10 @@ export function AppShell({ children }: AppShellProps) {
                     setProfile(profileData);
                 }
 
-                // Global Matrix Background Sync Initialization
                 try {
                     const matrixClient = await getMatrixClient();
-                    if (matrixClient && !matrixClient.clientRunning) {
-                        await matrixClient.startClient({
-                            initialSyncLimit: 20,
-                            pollTimeout: 20000,
-                            pendingEventOrdering: "detached",
-                            lazyLoadMembers: true
-                        } as any);
+                    if (matrixClient) {
+                        await safeStartClient(matrixClient);
                     }
                 } catch (err) {
                     console.error("Matrix Provider Sync Error:", err);
