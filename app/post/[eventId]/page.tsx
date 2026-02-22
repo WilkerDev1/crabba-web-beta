@@ -226,6 +226,37 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
         }
     }, [eventId]);
 
+    // ─── Real-Time Reply Listener ───
+    useEffect(() => {
+        if (!client) return;
+
+        const onTimeline = (event: any, room: any, toStartOfTimeline: boolean) => {
+            if (room?.roomId !== ROOM_ID || toStartOfTimeline) return;
+            if (event.getType() !== 'm.room.message') return;
+            if (event.isRedacted()) return;
+
+            const content = event.getContent();
+            const relatesTo = content?.['m.relates_to'];
+            if (!relatesTo) return;
+
+            // Check if this is a direct reply to the current event
+            const isDirectReply = relatesTo['m.in_reply_to']?.event_id === eventId;
+            if (!isDirectReply) return;
+
+            // Append to replies list, avoiding duplicates
+            setReplies(prev => {
+                const newId = event.getId();
+                if (prev.some((r: any) => r.event.getId() === newId)) return prev;
+                return [...prev, { event, childCount: 0 }];
+            });
+        };
+
+        client.on('Room.timeline' as any, onTimeline);
+        return () => {
+            client.removeListener('Room.timeline' as any, onTimeline);
+        };
+    }, [client, eventId]);
+
     if (loadingMessage) {
         return (
             <AppShell>

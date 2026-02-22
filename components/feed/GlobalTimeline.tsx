@@ -210,6 +210,63 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         fetchMessages();
     }, [refreshTrigger]);
 
+    // ─── Real-Time Event Listener ───
+    useEffect(() => {
+        if (!client) return;
+
+        const onTimeline = (event: any, room: any, toStartOfTimeline: boolean) => {
+            // Only care about events in our room, appended to the END (not backfill)
+            if (room?.roomId !== ROOM_ID || toStartOfTimeline) return;
+            if (event.getType() !== 'm.room.message') return;
+            if (event.isRedacted()) return;
+
+            const content = event.getContent();
+
+            // Apply the same filters as fetchMessages
+            if (filterUserId && event.getSender() !== filterUserId) return;
+
+            if (rootOnly) {
+                const relatesTo = content['m.relates_to'];
+                if (relatesTo) {
+                    const isRepost = relatesTo.rel_type === 'm.reference';
+                    const isThreadReply = relatesTo.rel_type === 'm.thread';
+                    const isInReplyTo = !!relatesTo['m.in_reply_to'];
+                    if (!isRepost && (isThreadReply || isInReplyTo)) return;
+                }
+            }
+
+            if (filterType === 'media') {
+                const isImageOrVideo = content.msgtype === 'm.image' || content.msgtype === 'm.video';
+                if (!isImageOrVideo) return;
+            }
+
+            if (filterThreadId) {
+                const relatesTo = content['m.relates_to'];
+                if (!relatesTo) return;
+                const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
+                const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+                if (!isThreadMember && !isDirectReply) return;
+            }
+
+            if (searchQuery) {
+                const body = content.body || '';
+                if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return;
+            }
+
+            // Prepend (newest first) — avoid duplicates by event ID
+            setEvents(prev => {
+                const eventId = event.getId();
+                if (prev.some((e: any) => e.getId() === eventId)) return prev;
+                return [event, ...prev];
+            });
+        };
+
+        client.on('Room.timeline' as any, onTimeline);
+        return () => {
+            client.removeListener('Room.timeline' as any, onTimeline);
+        };
+    }, [client, filterUserId, filterType, filterThreadId, searchQuery, rootOnly]);
+
     const loadMore = useCallback(async () => {
         if (!client || !hasMore || loadingMore) return;
         setLoadingMore(true);

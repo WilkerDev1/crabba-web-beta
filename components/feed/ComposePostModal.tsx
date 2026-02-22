@@ -97,11 +97,14 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                 const inReplyToId = replyToEventId; // Always the exact comment clicked
 
                 try {
-                    // Resolve the thread root by inspecting the target event.
+                    // BULLETPROOF THREAD ROOT DISCOVERY
+                    // Rule: m.thread.event_id MUST point to an event that has NO m.thread relation itself.
                     // Strategy:
-                    // 1. If target is already in a thread (rel_type: m.thread), its event_id IS the root.
-                    // 2. If target has m.in_reply_to but no m.thread, walk up to find the root.
-                    // 3. If target has no relations, IT is the root.
+                    //   1. If target has m.thread → COPY its event_id exactly (it already points to root).
+                    //   2. If target has only m.in_reply_to → walk UP via m.in_reply_to until we find
+                    //      either (a) an event with m.thread (copy its root), or (b) an event with NO
+                    //      m.relates_to at all (that IS the absolute root).
+                    //   3. If target has no m.relates_to → IT is the root.
                     const room = matrixClient.getRoom(currentRoomId);
 
                     const getContent = async (eId: string): Promise<any> => {
@@ -113,37 +116,51 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                         } catch { return null; }
                     };
 
-                    let targetContent = await getContent(replyToEventId);
+                    const targetContent = await getContent(replyToEventId);
+                    const targetRel = targetContent?.['m.relates_to'];
 
-                    if (targetContent?.["m.relates_to"]) {
-                        const rel = targetContent["m.relates_to"];
-                        if (rel.rel_type === "m.thread" && rel.event_id) {
-                            // Target is already in a thread — use its root
-                            rootId = rel.event_id;
-                        } else if (rel["m.in_reply_to"]?.event_id) {
-                            // Target is a simple reply. Walk up the chain (max 5) to find root.
-                            let currentId = rel["m.in_reply_to"].event_id;
-                            let depth = 0;
-                            while (currentId && depth < 5) {
-                                const parentContent = await getContent(currentId);
-                                const parentRel = parentContent?.["m.relates_to"];
-                                if (parentRel?.rel_type === "m.thread" && parentRel?.event_id) {
-                                    rootId = parentRel.event_id;
-                                    break;
-                                } else if (parentRel?.["m.in_reply_to"]?.event_id) {
-                                    rootId = currentId; // This parent is a candidate root
-                                    currentId = parentRel["m.in_reply_to"].event_id;
-                                } else {
-                                    // No more relations — this is the root
-                                    rootId = currentId;
-                                    break;
-                                }
-                                depth++;
+                    if (targetRel?.rel_type === 'm.thread' && targetRel?.event_id) {
+                        // Case 1: Target is already in a thread → just copy its root
+                        rootId = targetRel.event_id;
+                    } else if (targetRel?.['m.in_reply_to']?.event_id) {
+                        // Case 2: Target is a simple reply (no m.thread). Walk up.
+                        let currentId = targetRel['m.in_reply_to'].event_id;
+                        let depth = 0;
+                        while (currentId && depth < 10) {
+                            const parentContent = await getContent(currentId);
+                            const parentRel = parentContent?.['m.relates_to'];
+
+                            if (parentRel?.rel_type === 'm.thread' && parentRel?.event_id) {
+                                // Found a thread member — copy ITS root
+                                rootId = parentRel.event_id;
+                                break;
+                            } else if (!parentRel) {
+                                // No relations at all — THIS is the absolute root
+                                rootId = currentId;
+                                break;
+                            } else if (parentRel?.['m.in_reply_to']?.event_id) {
+                                // Has a parent — keep walking up
+                                currentId = parentRel['m.in_reply_to'].event_id;
+                            } else {
+                                // Has some relation but no parent pointer — treat as root
+                                rootId = currentId;
+                                break;
                             }
+                            depth++;
                         }
-                        // else: target has no thread or reply relation — it IS the root (rootId = replyToEventId)
                     }
-                    // else: target has no m.relates_to — it IS the root
+                    // Case 3: Target has no m.relates_to → rootId stays as replyToEventId
+
+                    // FINAL SAFETY CHECK: Verify the rootId event has NO m.thread relation
+                    if (rootId !== replyToEventId) {
+                        const rootContent = await getContent(rootId);
+                        const rootRel = rootContent?.['m.relates_to'];
+                        if (rootRel?.rel_type === 'm.thread') {
+                            // This "root" is actually a thread member! Use ITS root instead.
+                            console.warn('⚠️ Safety check caught bad root — using upstream root');
+                            rootId = rootRel.event_id;
+                        }
+                    }
                 } catch (e) {
                     console.log("Error resolving thread root, using target as root", e);
                 }

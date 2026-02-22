@@ -304,20 +304,26 @@ export const sendEventWithRetry = async (
         return await client.sendEvent(roomId, eventType as any, content);
     } catch (err: any) {
         const msg = err?.message || '';
-        const isBlocked = msg.includes('blocked') || msg.includes('not yet sent') || msg.includes('NOT_SENT');
+        const httpCode = err?.httpStatus || err?.data?.errcode;
 
+        // Handle queue-blocked errors
+        const isBlocked = msg.includes('blocked') || msg.includes('not yet sent') || msg.includes('NOT_SENT');
         if (isBlocked) {
             console.warn('⚠️ Event blocked by stuck queue. Clearing and retrying...');
             clearPendingEvents(roomId);
-
-            // Wait a beat for the queue to settle
             await new Promise(r => setTimeout(r, 500));
-
-            // Retry ONCE
             return await client.sendEvent(roomId, eventType as any, content);
         }
 
-        throw err; // Re-throw non-blocked errors
+        // Handle HTTP 400 — typically "Cannot start threads from an event with a relation"
+        const is400 = httpCode === 400 || msg.includes('400') || msg.includes('Cannot start threads');
+        if (is400) {
+            console.error('🚨 400 error during send — purging pending queue to prevent lockup');
+            clearPendingEvents(roomId);
+            throw new Error('Thread relation error: the reply target may already be in a thread. Please try again.');
+        }
+
+        throw err;
     }
 };
 

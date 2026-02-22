@@ -277,9 +277,11 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         router.push(`/post/${eventId}`);
     };
 
+    const isSending = event.status === 'sending';
+
     return (
         <div
-            className={`relative border-b border-neutral-800 px-3 sm:px-4 py-3 sm:py-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}
+            className={`relative border-b border-neutral-800 px-3 sm:px-4 py-3 sm:py-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'} ${isSending ? 'opacity-70' : ''}`}
             onClick={handleCardClick}
         >
             {/* Thread Line Component */}
