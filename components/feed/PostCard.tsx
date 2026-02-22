@@ -325,10 +325,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         </div>
                     )}
 
-                    {/* Replying To Visual Context */}
-                    {!isRepost && hasParent && replyToProfile && !isNested && (
-                        <div className="text-neutral-500 text-sm mb-2">
-                            Replying to <Link href={`/post/${inReplyToId}`} className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>@{replyToProfile.username}</Link>
+                    {/* Replying To Visual Context — only in detail views where it provides useful ancestry context */}
+                    {!isRepost && hasParent && replyToProfile && !isNested && isDetailView && (
+                        <div className="text-neutral-500 text-xs mb-1.5 italic">
+                            Replying to <Link href={`/post/${inReplyToId}`} className="text-blue-400 hover:underline not-italic" onClick={e => e.stopPropagation()}>@{replyToProfile.username}</Link>
                         </div>
                     )}
 
