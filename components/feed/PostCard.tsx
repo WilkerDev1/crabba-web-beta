@@ -333,13 +333,35 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         </div>
                     )}
 
-                    {!isRepost && imageUrl ? (
-                        <div className="relative block mt-2 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[500px]">
+                    {/* Text Content — always render if body is meaningful (not just a filename) */}
+                    {!isRepost && body && (() => {
+                        // Hide body if it's just a raw filename (e.g., "image_2024.jpg")
+                        const isJustFilename = imageUrl && /^\S+\.(jpeg|jpg|gif|png|webp|mp4|webm)$/i.test(body.trim());
+                        if (isJustFilename) return null;
+                        return (
+                            <div className="relative mb-2">
+                                <div className={`text-neutral-200 whitespace-pre-wrap break-words text-[15px] leading-normal transition-all duration-300 ${isLocked ? 'blur-md opacity-40 select-none' : ''}`}>
+                                    {renderBodyWithHashtags(body)}
+                                </div>
+                                {isLocked && !imageUrl && (
+                                    <LockedContentOverlay
+                                        accessLevel={accessLevel}
+                                        price={price}
+                                        onUnlockClick={() => { alert('Premium subscription flow coming soon!') }}
+                                    />
+                                )}
+                            </div>
+                        );
+                    })()}
+
+                    {/* Media Attachment — rendered below text */}
+                    {!isRepost && imageUrl && (
+                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[500px]">
                             <Link href={`/post/${eventId}`}>
                                 <img
                                     src={imageUrl}
-                                    alt={body}
-                                    className={`w-full h-full object-cover max-w-full mt-2 transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
+                                    alt={body || 'Post image'}
+                                    className={`w-full h-full object-cover max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
                                     loading="lazy"
                                 />
                             </Link>
@@ -351,24 +373,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 />
                             )}
                         </div>
-                    ) : null}
-
-                    {!isRepost && !imageUrl && body ? (
-                        <div className="relative mb-3">
-                            <div className={`text-neutral-200 whitespace-pre-wrap break-words text-[15px] leading-normal transition-all duration-300 ${isLocked ? 'blur-md opacity-40 select-none' : ''}`}>
-                                <Link href={`/post/${eventId}`} className="block">
-                                    {renderBodyWithHashtags(body)}
-                                </Link>
-                            </div>
-                            {isLocked && (
-                                <LockedContentOverlay
-                                    accessLevel={accessLevel}
-                                    price={price}
-                                    onUnlockClick={() => { alert('Premium subscription flow coming soon!') }}
-                                />
-                            )}
-                        </div>
-                    ) : null}
+                    )}
 
                     {isRepost && fetchingOriginal && (
                         <div className="flex items-center justify-center p-6 border border-neutral-800 rounded-2xl mb-3">
