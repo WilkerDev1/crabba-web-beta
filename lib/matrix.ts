@@ -345,9 +345,25 @@ export const safeStartClient = async (client: MatrixClient): Promise<void> => {
         globalForMatrix.clientStarted = true;
         await client.startClient({
             initialSyncLimit: 20,
-            pollTimeout: 20000,
-            pendingEventOrdering: "detached",
             lazyLoadMembers: true,
+            pendingEventOrdering: "detached",
+            // Disable presence tracking entirely — Crabba doesn't use online indicators
+            disablePresence: true,
+            // Aggressive sync filter: strip presence, typing, receipts, and bulk state
+            filter: {
+                presence: { not_types: ["*"] },  // No presence events
+                room: {
+                    ephemeral: {
+                        not_types: ["m.typing", "m.receipt"],  // No typing/read receipts
+                    },
+                    state: {
+                        lazy_load_members: true,
+                    },
+                    timeline: {
+                        limit: 20,
+                    },
+                },
+            } as any,
         } as any);
     } catch (err) {
         globalForMatrix.clientStarted = false;
