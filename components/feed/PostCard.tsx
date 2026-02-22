@@ -410,9 +410,13 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                     </div>
                                 </ComposePostModal>
                             ) : (
-                                <Link href={`/post/${eventId}`}>
-                                    <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
-                                </Link>
+                                <ActionIcon
+                                    icon={<MessageSquare className="w-4 h-4" />}
+                                    count={replyCount}
+                                    color="group-hover:text-blue-500"
+                                    bg="group-hover:bg-blue-500/10"
+                                    onClick={() => router.push(`/post/${eventId}`)}
+                                />
                             )}
                             <ActionIcon
                                 icon={isReposting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className={`w-4 h-4 ${isRepost ? 'text-green-500' : ''}`} />}
