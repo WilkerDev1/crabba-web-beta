@@ -28,14 +28,19 @@ export const setServerStatus = (offline: boolean): void => {
 };
 
 /**
- * Get the effective base URL, checking localStorage for a user-updated tunnel URL.
+ * Get the effective base URL. Environment variable is the PRIMARY source of truth.
+ * localStorage override is ONLY used if the env var is empty (local dev with tunnels).
  */
 export const getEffectiveBaseUrl = (): string => {
+    // Env var always wins if set — this is what Vercel deploys control
+    if (MATRIX_BASE_URL) return MATRIX_BASE_URL;
+
+    // Fallback to localStorage only if env var is empty (local dev tunnel scenario)
     if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('matrix_homeserver_url');
         if (stored) return stored.replace(/\/+$/, '');
     }
-    return MATRIX_BASE_URL;
+    return '';
 };
 
 /**
@@ -141,7 +146,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
             if (accessToken && userId && deviceId) {
                 console.log('💾 Restoring Matrix session from LocalStorage...');
                 client = createClient({
-                    baseUrl: MATRIX_BASE_URL,
+                    baseUrl: getEffectiveBaseUrl(),
                     accessToken,
                     userId,
                     deviceId,
@@ -164,7 +169,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                 const data = await res.json();
 
                 client = createClient({
-                    baseUrl: MATRIX_BASE_URL,
+                    baseUrl: getEffectiveBaseUrl(),
                     accessToken: data.access_token,
                     userId: data.user_id,
                     deviceId: data.device_id,
