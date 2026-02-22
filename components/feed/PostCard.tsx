@@ -53,6 +53,9 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const isRepost = relatesTo?.rel_type === 'm.reference' && !!relatesTo?.event_id;
     const originalEventId = isRepost ? relatesTo.event_id : null;
 
+    // TWITTER/X REPOST MODEL: All interactions target the ORIGINAL post, not the repost wrapper
+    const targetEventId = isRepost && originalEventId ? originalEventId : eventId;
+
     // Threading logic
     const inReplyToId = relatesTo?.['m.in_reply_to']?.event_id;
     const isThreadReply = relatesTo?.rel_type === 'm.thread';
@@ -91,8 +94,8 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
         const fetchRelations = async () => {
             try {
-                // Likes
-                const reactions = await matrixClient.relations(roomId, eventId, "m.annotation", "m.reaction");
+                // Likes — target original event for reposts
+                const reactions = await matrixClient.relations(roomId, targetEventId, "m.annotation", "m.reaction");
                 if (reactions?.events) {
                     setLikeCount(reactions.events.length);
                     // Check if current user liked
@@ -101,8 +104,8 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     }
                 }
 
-                // Replies (Threads)
-                const threads = await matrixClient.relations(roomId, eventId, "m.thread", "m.room.message");
+                // Replies (Threads) — target original event for reposts
+                const threads = await matrixClient.relations(roomId, targetEventId, "m.thread", "m.room.message");
                 if (threads?.events) {
                     setReplyCount(threads.events.length);
                 }
@@ -200,14 +203,13 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const handleLike = async () => {
         if (!matrixClient || isLiking) return;
         setIsLiking(true);
-        const roomId = event.getRoomId();
-        const eventId = event.getId();
+        const likeRoomId = event.getRoomId();
 
         try {
-            await matrixClient.sendEvent(roomId, "m.reaction", {
+            await matrixClient.sendEvent(likeRoomId, "m.reaction", {
                 "m.relates_to": {
                     rel_type: "m.annotation",
-                    event_id: eventId,
+                    event_id: targetEventId,
                     key: "❤️"
                 }
             });
@@ -236,7 +238,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 body: `♻️ Reposted @${senderName}'s post`,
                 "m.relates_to": {
                     rel_type: "m.reference",
-                    event_id: eventId
+                    event_id: targetEventId
                 }
             });
             setRepostCount(prev => prev + 1);
@@ -276,7 +278,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         const target = e.target as HTMLElement;
         // Don't trigger if clicked on nested interactive items
         if (target.closest('a') || target.closest('button')) return;
-        router.push(`/post/${eventId}`);
+        router.push(`/post/${targetEventId}`);
     };
 
     const isSending = event.status === 'sending';
@@ -404,7 +406,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     {!isNested && (
                         <div className="flex justify-between text-neutral-500 max-w-md mt-3">
                             {isDetailView ? (
-                                <ComposePostModal replyToEventId={eventId} defaultRoomId={roomId} onPostCreated={() => { }}>
+                                <ComposePostModal replyToEventId={targetEventId} defaultRoomId={roomId} onPostCreated={() => { }}>
                                     <div onClick={e => e.stopPropagation()}>
                                         <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
                                     </div>
@@ -415,7 +417,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                     count={replyCount}
                                     color="group-hover:text-blue-500"
                                     bg="group-hover:bg-blue-500/10"
-                                    onClick={() => router.push(`/post/${eventId}`)}
+                                    onClick={() => router.push(`/post/${targetEventId}`)}
                                 />
                             )}
                             <ActionIcon
@@ -437,7 +439,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 color={copied ? "text-green-400" : "group-hover:text-blue-500"}
                                 bg="group-hover:bg-blue-500/10"
                                 onClick={() => {
-                                    const url = `${window.location.origin}/post/${eventId}`;
+                                    const url = `${window.location.origin}/post/${targetEventId}`;
                                     navigator.clipboard.writeText(url).then(() => {
                                         setCopied(true);
                                         setTimeout(() => setCopied(false), 2000);
