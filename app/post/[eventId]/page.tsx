@@ -173,47 +173,41 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             setParents(parentChain);
 
             // 2. Fetch replies / threads
-            // KEY FIX: Matrix threads reference the ROOT event_id. So if we're viewing
-            // a deep comment, we must find the root first, then fetch ALL thread descendants
-            // from the root, and then filter for replies to THIS specific eventId.
+            // TWITTER-STYLE COMPRESSION: Only show DIRECT replies to this event.
+            // Users drill down by clicking a reply to see its own replies.
             try {
-                // Determine the thread root. If this event IS a thread reply, its
-                // m.relates_to.event_id (with rel_type m.thread) points to the root.
-                // If this event IS the root, then we query relations on itself.
+                // Determine the thread root to fetch all thread descendants
                 const eventContent = eventJson.content;
                 const eventRelation = eventContent?.['m.relates_to'];
-                let threadRootId = eventId; // Default: this event is the root
+                let threadRootId = eventId;
 
                 if (eventRelation?.rel_type === 'm.thread' && eventRelation?.event_id) {
                     threadRootId = eventRelation.event_id;
                 } else if (parentChain.length > 0) {
-                    // If we have parents, the topmost parent is the root
                     threadRootId = parentChain[0].getId();
                 }
 
                 const threads = await matrixClient.relations(ROOM_ID, threadRootId, "m.thread", "m.room.message");
-                let fetchedReplies = threads?.events || [];
+                const allDescendants = threads?.events || [];
 
-                // Sort by timestamp for proper chronological ordering within depths
-                fetchedReplies.sort((a: any, b: any) => a.getTs() - b.getTs());
-
-                // Build a flat tree sorted by depth-first, starting from THIS event
-                const buildTree = (parentId: string, currentDepth = 0): any[] => {
-                    const children = fetchedReplies.filter((e: any) => {
+                // Filter to ONLY direct replies to this event
+                const directReplies = allDescendants
+                    .filter((e: any) => {
                         const relates = e.getContent()?.['m.relates_to'];
-                        return relates?.['m.in_reply_to']?.event_id === parentId;
-                    });
+                        return relates?.['m.in_reply_to']?.event_id === eventId;
+                    })
+                    .sort((a: any, b: any) => a.getTs() - b.getTs());
 
-                    let result: any[] = [];
-                    children.forEach((child: any) => {
-                        result.push({ event: child, depth: currentDepth });
-                        result = result.concat(buildTree(child.getId(), currentDepth + 1));
-                    });
-                    return result;
-                };
+                // For each direct reply, check if it has its own children (for "Show thread" indicator)
+                const repliesWithMeta = directReplies.map((reply: any) => {
+                    const childCount = allDescendants.filter((e: any) => {
+                        const relates = e.getContent()?.['m.relates_to'];
+                        return relates?.['m.in_reply_to']?.event_id === reply.getId();
+                    }).length;
+                    return { event: reply, childCount };
+                });
 
-                const threadedReplies = buildTree(eventId, 0);
-                setReplies(threadedReplies);
+                setReplies(repliesWithMeta);
             } catch (relErr) {
                 console.error("Failed to fetch relations:", relErr);
             }
@@ -332,35 +326,24 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                 </ComposePostModal>
             </div>
 
-            {/* Replies List */}
+            {/* Replies List — Direct replies only (Twitter-style compression) */}
             <div className="divide-y divide-neutral-800 pb-20">
                 {replies.length === 0 ? (
                     <div className="p-12 text-center text-neutral-500">
                         No replies yet.
                     </div>
                 ) : (
-                    replies.map(({ event: replyEvent, depth }, index) => {
-                        const nextReply = replies[index + 1];
-                        // It's the last in its local thread block if the next item jumps back up visually
-                        const isLastInThread = !nextReply || nextReply.depth <= depth;
-
-                        return (
-                            <div
-                                key={replyEvent.getId()}
-                                className="border-b border-neutral-800"
-                            >
-                                <div style={{ paddingLeft: `${depth * 28}px` }} className="h-full">
-                                    <PostCard
-                                        event={replyEvent}
-                                        matrixClient={client}
-                                        isDetailView={true}
-                                        showThreadLine={true}
-                                        isLastInThread={isLastInThread}
-                                    />
-                                </div>
-                            </div>
-                        );
-                    })
+                    replies.map(({ event: replyEvent, childCount }: any) => (
+                        <PostCard
+                            key={replyEvent.getId()}
+                            event={replyEvent}
+                            matrixClient={client}
+                            isDetailView={false}
+                            showThreadLine={false}
+                            isLastInThread={true}
+                            hasChildren={childCount > 0}
+                        />
+                    ))
                 )}
             </div>
         </AppShell>

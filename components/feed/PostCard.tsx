@@ -17,9 +17,10 @@ interface PostCardProps {
     isDetailView?: boolean;
     isLastInThread?: boolean;
     showThreadLine?: boolean;
+    hasChildren?: boolean;
 }
 
-export function PostCard({ event, matrixClient, isNested = false, isDetailView = false, isLastInThread = false, showThreadLine = false }: PostCardProps) {
+export function PostCard({ event, matrixClient, isNested = false, isDetailView = false, isLastInThread = false, showThreadLine = false, hasChildren = false }: PostCardProps) {
     const router = useRouter();
     const [liked, setLiked] = useState<boolean>(false);
     const [likeCount, setLikeCount] = useState<number>(0);
@@ -426,6 +427,15 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                     onClick={handleDeleteClick}
                                 />
                             )}
+                        </div>
+                    )}
+
+                    {/* "Show this thread" indicator for replies that have their own children */}
+                    {hasChildren && !isNested && (
+                        <div className="mt-2 pt-1">
+                            <span className="text-blue-400 text-sm hover:underline cursor-pointer">
+                                Show this thread
+                            </span>
                         </div>
                     )}
                 </div>
