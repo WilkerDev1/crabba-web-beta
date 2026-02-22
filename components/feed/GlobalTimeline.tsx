@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { getMatrixClient } from '@/lib/matrix';
+import { getMatrixClient, getSharedClient } from '@/lib/matrix';
 import { PostCard } from './PostCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,10 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
         if (events.length === 0) setLoading(true);
         setError(null);
         try {
-            const matrixClient = await getMatrixClient();
+            let matrixClient = getSharedClient();
+            if (!matrixClient) {
+                matrixClient = await getMatrixClient();
+            }
 
             if (!matrixClient) {
                 setError('Authentication Failed: Could not initialize Matrix client.');
@@ -44,32 +47,16 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
 
             setClient(matrixClient);
 
-            // Auto-Join the Global Timeline Room
-            try {
-                if (ROOM_ID) {
-                    console.log(`[GlobalTimeline] Attempting to ensure joined state for room: ${ROOM_ID}`);
-                    await matrixClient.joinRoom(ROOM_ID);
-                }
-            } catch (joinError) {
-                // Ignore errors related to already being joined
-                console.log(`[GlobalTimeline] Note on room join (expected if already in room):`, joinError);
-            }
-
-            // Simple fetch of last 20 messages from room
-            // In production we would use a proper pagination hook or library support
-            let room = matrixClient.getRoom(ROOM_ID);
-
-            if (!room || matrixClient.getSyncState() !== 'PREPARED') {
+            // Wait until client is prepared before we attempt any room operations
+            if (matrixClient.getSyncState() !== 'PREPARED') {
                 setLoadingMessage("Sincronizando con la red Matrix...");
 
                 await new Promise<void>((resolve) => {
                     let retries = 0;
                     let lastState = matrixClient.getSyncState();
 
-                    const checkRoom = () => {
-                        const r = matrixClient.getRoom(ROOM_ID);
-                        if (r && matrixClient.getSyncState() === 'PREPARED') {
-                            room = r;
+                    const checkSync = () => {
+                        if (matrixClient.getSyncState() === 'PREPARED') {
                             cleanup();
                             resolve();
                             return true;
@@ -80,7 +67,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                     const syncListener = (state: string) => {
                         lastState = state as any;
                         if (state === 'PREPARED') {
-                            checkRoom();
+                            checkSync();
                         } else if (state === 'ERROR') {
                             console.warn("Matrix sync ERROR state encountered. Waiting for reconnect...");
                         } else if (state === 'RECONNECTING') {
@@ -89,7 +76,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                     };
 
                     const pollInterval = setInterval(() => {
-                        if (!checkRoom()) {
+                        if (!checkSync()) {
                             retries++;
 
                             // If we are actively reconnecting or syncing, give it more time 
@@ -130,10 +117,25 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                     };
 
                     matrixClient.on("sync" as any, syncListener);
-                    checkRoom();
+                    checkSync();
                 });
 
                 setLoadingMessage(null);
+            }
+
+            // Instant Room Switching
+            // Try to get room from cache
+            let room = matrixClient.getRoom(ROOM_ID);
+
+            // If room isn't in cache, fetch it using joinRoom without restarting sync
+            if (!room && ROOM_ID) {
+                console.log(`[GlobalTimeline] Room not in cache, fetching/joining: ${ROOM_ID}`);
+                try {
+                    await matrixClient.joinRoom(ROOM_ID);
+                    room = matrixClient.getRoom(ROOM_ID);
+                } catch (joinError) {
+                    console.error(`[GlobalTimeline] Failed to join room:`, joinError);
+                }
             }
 
             if (room) {

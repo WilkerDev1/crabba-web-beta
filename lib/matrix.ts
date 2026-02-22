@@ -9,6 +9,10 @@ const globalForMatrix = global as unknown as {
     loginPromise: Promise<MatrixClient | null> | null;
 };
 
+export const getSharedClient = (): MatrixClient | null => {
+    return globalForMatrix.matrixClient;
+};
+
 export const getMatrixClient = async (): Promise<MatrixClient | null> => {
     // 1. Check for existing in-memory client first
     if (globalForMatrix.matrixClient) {
@@ -119,24 +123,20 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
             client.on("sync" as any, (state: string, prevState: string, data: any) => {
                 if (state === 'ERROR') {
                     let errMessage = data?.error?.message || "Unknown error";
+
+                    // Silence context canceled on soft navigations
+                    if (errMessage.includes("context canceled") || errMessage.includes("fetch failed")) {
+                        return; // Expected behavior when React unmounts fetch calls during page hop
+                    }
+
                     console.error("Matrix Sync Error Details:", errMessage);
 
                     if (errMessage.includes("M_UNKNOWN_TOKEN")) {
                         console.warn("Matrix token rejected. Client needs to re-auth.");
-                        // Handle re-auth logic if needed, but for now we log.
+                        // Handle re-auth logic if needed
                     }
                 }
             });
-
-            // Start client to sync
-            if (!client.clientRunning) {
-                // Ensure detached ordering and 20s timeout for Cloudflare safety
-                await client.startClient({
-                    initialSyncLimit: 20,
-                    pollTimeout: 20000,
-                    pendingEventOrdering: "detached"
-                } as any);
-            }
 
             globalForMatrix.matrixClient = client;
             return client;

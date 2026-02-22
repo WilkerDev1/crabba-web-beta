@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, use } from 'react';
-import { getMatrixClient } from '@/lib/matrix';
+import { getMatrixClient, getSharedClient } from '@/lib/matrix';
 import { PostCard } from '@/components/feed/PostCard';
 import { AppShell } from '@/components/layout/AppShell';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -33,7 +33,11 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
         setLoading(true);
         setError(null);
         try {
-            const matrixClient = await getMatrixClient();
+            let matrixClient = getSharedClient();
+            if (!matrixClient) {
+                matrixClient = await getMatrixClient();
+            }
+
             if (!matrixClient) {
                 setError('Authentication Failed: Could not initialize Matrix client.');
                 setLoading(false);
@@ -41,26 +45,15 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             }
             setClient(matrixClient);
 
-            // Try to join global room just in case
-            try {
-                await matrixClient.joinRoom(ROOM_ID);
-            } catch (e) {
-                /* ignore */
-            }
-
-            let room = matrixClient.getRoom(ROOM_ID);
-
-            if (!room || matrixClient.getSyncState() !== 'PREPARED') {
+            if (matrixClient.getSyncState() !== 'PREPARED') {
                 setLoadingMessage("Sincronizando con la red Matrix...");
 
                 await new Promise<void>((resolve) => {
                     let retries = 0;
                     let lastState = matrixClient.getSyncState();
 
-                    const checkRoom = () => {
-                        const r = matrixClient.getRoom(ROOM_ID);
-                        if (r && matrixClient.getSyncState() === 'PREPARED') {
-                            room = r;
+                    const checkSync = () => {
+                        if (matrixClient.getSyncState() === 'PREPARED') {
                             cleanup();
                             resolve();
                             return true;
@@ -71,7 +64,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                     const syncListener = (state: string) => {
                         lastState = state as any;
                         if (state === 'PREPARED') {
-                            checkRoom();
+                            checkSync();
                         } else if (state === 'ERROR') {
                             console.warn("Matrix sync ERROR state encountered. Waiting for reconnect...");
                         } else if (state === 'RECONNECTING') {
@@ -80,7 +73,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                     };
 
                     const pollInterval = setInterval(() => {
-                        if (!checkRoom()) {
+                        if (!checkSync()) {
                             retries++;
 
                             if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
@@ -114,10 +107,21 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                     };
 
                     matrixClient.on("sync" as any, syncListener);
-                    checkRoom();
+                    checkSync();
                 });
 
                 setLoadingMessage(null);
+            }
+
+            let room = matrixClient.getRoom(ROOM_ID);
+            if (!room && ROOM_ID) {
+                console.log(`[PostDetail] Room not in cache, fetching/joining: ${ROOM_ID}`);
+                try {
+                    await matrixClient.joinRoom(ROOM_ID);
+                    room = matrixClient.getRoom(ROOM_ID);
+                } catch (e) {
+                    console.error("[PostDetail] Failed to join room:", e);
+                }
             }
 
             if (!room) {
