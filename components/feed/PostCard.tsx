@@ -22,6 +22,11 @@ interface PostCardProps {
 
 export function PostCard({ event, matrixClient, isNested = false, isDetailView = false, isLastInThread = false, showThreadLine = false, hasChildren = false }: PostCardProps) {
     const router = useRouter();
+
+    // ─── SAFETY: Bail early for redacted, malformed, or redaction-type events ───
+    if (!event || typeof event.getContent !== 'function') return null;
+    if (event.isRedacted?.() || event.getType?.() === 'm.room.redaction') return null;
+
     const [liked, setLiked] = useState<boolean>(false);
     const [likeCount, setLikeCount] = useState<number>(0);
     const [replyCount, setReplyCount] = useState<number>(0);
@@ -32,11 +37,16 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const [isDeleted, setIsDeleted] = useState<boolean>(false);
     const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
 
-    const content = event.getContent();
-    const senderId = event.getSender();
+    const content = event.getContent() || {};
+    const senderId = event.getSender() || '';
     const timestamp = event.getTs();
     const eventId = event.getId();
     const roomId = event.getRoomId();
+
+    // If content is completely empty (redacted mid-render or malformed), bail
+    const body = content?.body;
+    const msgtype = content?.msgtype;
+    if (!body && !msgtype && !content?.url) return null;
 
     const relatesTo = content['m.relates_to'];
     // Strict evaluation of reference relations to avoid catching normal threaded replies
@@ -63,15 +73,6 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const senderName = profile?.username || senderId;
     const avatarUrl = profile?.avatar_url || null;
 
-    const body = content.body || '';
-
-    // Aggressive Debugging
-    console.log("MSG DEBUG:", {
-        type: content.msgtype,
-        url: content.url,
-        body: content.body,
-        eventId: event.getId()
-    });
 
     let imageUrl = null;
     const isImageMsg = content.msgtype === 'm.image';
@@ -179,7 +180,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     }, [isRepost, matrixClient, originalEventId, roomId, originalEvent, fetchingOriginal]);
 
     const renderBodyWithHashtags = (text: string) => {
-        if (!text) return null;
+        if (!text || typeof text !== 'string') return null;
         if (isRepost && !originalEvent) return null; // Hide the "♻️ Reposted..." body text if we are rendering the nested card
 
         const parts = text.split(/(#\w+)/g);

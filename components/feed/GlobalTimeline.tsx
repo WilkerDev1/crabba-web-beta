@@ -217,10 +217,21 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         const onTimeline = (event: any, room: any, toStartOfTimeline: boolean) => {
             // Only care about events in our room, appended to the END (not backfill)
             if (room?.roomId !== ROOM_ID || toStartOfTimeline) return;
-            if (event.getType() !== 'm.room.message') return;
-            if (event.isRedacted()) return;
 
-            const content = event.getContent();
+            // Handle redactions: remove the target event from UI
+            if (event.getType() === 'm.room.redaction') {
+                const redactedId = event.getAssociatedId?.() || event.event?.redacts;
+                if (redactedId) {
+                    setEvents(prev => prev.filter((e: any) => e.getId() !== redactedId));
+                }
+                return;
+            }
+
+            if (event.getType() !== 'm.room.message') return;
+            if (event.isRedacted?.()) return;
+
+            const content = event.getContent() || {};
+            if (!content.body && !content.msgtype && !content.url) return;
 
             // Apply the same filters as fetchMessages
             if (filterUserId && event.getSender() !== filterUserId) return;
