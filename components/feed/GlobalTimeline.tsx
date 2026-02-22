@@ -26,10 +26,11 @@ interface InteractionCounts {
 
 function computeTrendingScore(interactions: InteractionCounts, timestampMs: number): number {
     const ageMs = Date.now() - timestampMs;
-    const ageHours = Math.max(ageMs / (1000 * 60 * 60), 0.1); // min 6 min to avoid division by near-zero
+    const ageHours = ageMs / (1000 * 60 * 60);
     const baseScore = (interactions.likes * 1) + (interactions.reposts * 2) + (interactions.replies * 2);
-    // All posts get a minimum base score of 1 so brand-new posts still rank
-    return (baseScore + 1) / Math.pow(ageHours, GRAVITY);
+    // +1 ensures brand-new posts with 0 interactions still rank
+    // +2 on ageHours prevents divide-by-near-zero for brand-new posts
+    return (baseScore + 1) / Math.pow(ageHours + 2, GRAVITY);
 }
 
 interface GlobalTimelineProps {
@@ -54,9 +55,10 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     const [activeTab, setActiveTab] = useState<'recientes' | 'tendencias'>('recientes');
 
     // Interaction cache: eventId → {likes, reposts, replies}
-    // Populated lazily when Tendencias tab is active or on initial load
     const [interactionCache, setInteractionCache] = useState<Map<string, InteractionCounts>>(new Map());
     const [cacheFetching, setCacheFetching] = useState(false);
+    // Version counter — incremented every time cache updates to trigger useMemo reactivity
+    const [metricsVersion, setMetricsVersion] = useState(0);
 
     const fetchMessages = async () => {
         // Only set loading on first load to avoid flickering on refresh
@@ -318,8 +320,9 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         }
 
         setInteractionCache(newCache);
+        setMetricsVersion(v => v + 1); // Force useMemo to re-compute
         setCacheFetching(false);
-    }, [client, events, cacheFetching, interactionCache]);
+    }, [client, events, cacheFetching]);
 
     // Fetch interaction counts when switching to Tendencias or on initial load
     useEffect(() => {
@@ -329,15 +332,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     }, [activeTab, events.length, client]);
 
     // ─── Display Events (sorted by active tab) ───
-    // Only re-sort when activeTab or interactionCache changes, NOT on every event append.
-    // This prevents the feed from reshuffling while the user is reading.
+    // Re-sorts when activeTab changes or when metricsVersion bumps (new cache data).
+    // NEVER mutates the original events array.
     const displayEvents = useMemo(() => {
         if (activeTab === 'recientes') {
-            // Chronological: already newest-first from fetchMessages
-            return events;
+            // Explicit chronological sort on a COPY — newest first
+            return [...events].sort((a, b) => b.getTs() - a.getTs());
         }
 
-        // Tendencias: sort by trending score
+        // Tendencias: sort a COPY by trending score
         return [...events].sort((a, b) => {
             const aId = a.getId();
             const bId = b.getId();
@@ -347,7 +350,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
             const bScore = computeTrendingScore(bInteractions, b.getTs());
             return bScore - aScore; // highest score first
         });
-    }, [activeTab, events, interactionCache]);
+    }, [activeTab, events, interactionCache, metricsVersion]);
 
     const loadMore = useCallback(async () => {
         if (!client || !hasMore || loadingMore) return;
