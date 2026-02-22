@@ -17,9 +17,10 @@ interface GlobalTimelineProps {
     filterType?: 'all' | 'media' | 'replies';
     searchQuery?: string;
     filterThreadId?: string;
+    rootOnly?: boolean;
 }
 
-export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, filterThreadId }: GlobalTimelineProps) {
+export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, filterThreadId, rootOnly = false }: GlobalTimelineProps) {
     const [events, setEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -130,6 +131,19 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         // also check if body ends with image extensions as fallback
                         const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp|mp4|webm)$/);
                         if (!isImageOrVideo && !isImageFile) return false;
+                    }
+
+                    // ROOT-ONLY FILTER: Hide threaded replies from home feed.
+                    // Reposts (m.reference) are intentional top-level shares and MUST pass through.
+                    if (rootOnly) {
+                        const relatesTo = content['m.relates_to'];
+                        if (relatesTo) {
+                            const isRepost = relatesTo.rel_type === 'm.reference';
+                            const isThreadReply = relatesTo.rel_type === 'm.thread';
+                            const isInReplyTo = !!relatesTo['m.in_reply_to'];
+                            // Allow reposts, reject thread replies and simple replies
+                            if (!isRepost && (isThreadReply || isInReplyTo)) return false;
+                        }
                     }
 
                     if (filterType === 'replies') {

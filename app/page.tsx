@@ -15,7 +15,7 @@ export default async function Home() {
 
   return (
     <AppShell>
-      <GlobalTimeline />
+      <GlobalTimeline rootOnly={true} />
     </AppShell>
   );
 }
