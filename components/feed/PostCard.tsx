@@ -4,6 +4,7 @@ import { MessageSquare, Heart, Repeat, Share, Loader2 } from 'lucide-react';
 import { useMatrixProfile } from '@/hooks/useMatrixProfile';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Trash2 } from 'lucide-react';
 import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
 import { ComposePostModal } from '@/components/feed/ComposePostModal';
@@ -19,6 +20,7 @@ interface PostCardProps {
 }
 
 export function PostCard({ event, matrixClient, isNested = false, isDetailView = false, isLastInThread = false, showThreadLine = false }: PostCardProps) {
+    const router = useRouter();
     const [liked, setLiked] = useState<boolean>(false);
     const [likeCount, setLikeCount] = useState<number>(0);
     const [replyCount, setReplyCount] = useState<number>(0);
@@ -267,8 +269,18 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const myUserId = matrixClient?.getUserId();
     const canDelete = myUserId === senderId;
 
+    const handleCardClick = (e: React.MouseEvent) => {
+        const target = e.target as HTMLElement;
+        // Don't trigger if clicked on nested interactive items
+        if (target.closest('a') || target.closest('button')) return;
+        router.push(`/post/${eventId}`);
+    };
+
     return (
-        <div className={`relative border-b border-neutral-800 p-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}>
+        <div
+            className={`relative border-b border-neutral-800 p-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}
+            onClick={handleCardClick}
+        >
             {/* Thread Line Component */}
             {showThreadLine && !isLastInThread && (
                 <div className="absolute left-[35px] top-[60px] bottom-0 w-[2px] bg-neutral-800" />
@@ -316,7 +328,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     {/* Replying To Visual Context */}
                     {!isRepost && hasParent && replyToProfile && !isNested && (
                         <div className="text-neutral-500 text-sm mb-2">
-                            Replying to <Link href={`/${replyToProfile.username}`} className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>@{replyToProfile.username}</Link>
+                            Replying to <Link href={`/post/${inReplyToId}`} className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>@{replyToProfile.username}</Link>
                         </div>
                     )}
 

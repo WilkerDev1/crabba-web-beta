@@ -21,6 +21,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
     const router = useRouter();
     const [client, setClient] = useState<any>(null);
     const [eventData, setEventData] = useState<any>(null);
+    const [parents, setParents] = useState<any[]>([]);
     const [replies, setReplies] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -115,23 +116,90 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             // 1. Fetch main event
             const eventJson = await matrixClient.fetchRoomEvent(ROOM_ID, eventId);
 
+            // Wrapper for events
+            const wrapEvent = (ev: any) => ({
+                getContent: () => ev.content,
+                getSender: () => ev.sender,
+                getTs: () => ev.origin_server_ts,
+                getId: () => ev.event_id,
+                getRoomId: () => ev.room_id || ROOM_ID,
+                getType: () => ev.type,
+            });
+
             // Wrap raw JSON response in a mocked MatrixEvent-like object for PostCard
-            const mockEvent = {
-                getContent: () => eventJson.content,
-                getSender: () => eventJson.sender,
-                getTs: () => eventJson.origin_server_ts,
-                getId: () => eventJson.event_id,
-                getRoomId: () => eventJson.room_id || ROOM_ID,
-                getType: () => eventJson.type,
-            };
+            const mockEvent = wrapEvent(eventJson);
             setEventData(mockEvent);
+
+            // Fetch Parent Chain (Ancestry)
+            const parentChain: any[] = [];
+            let currentContent = eventJson.content;
+            let depth = 0;
+
+            while (currentContent && currentContent['m.relates_to']?.['m.in_reply_to']?.event_id && depth < 5) {
+                const parentId = currentContent['m.relates_to']['m.in_reply_to'].event_id;
+                try {
+                    // Try cache first
+                    const roomObj = matrixClient.getRoom(ROOM_ID);
+                    let parentEv = roomObj?.findEventById(parentId);
+                    let rawParent;
+
+                    if (parentEv) {
+                        // We have to extract crude JSON to wrap it consistently or just use the event
+                        // Since wrapEvent expects raw JSON structure, we can reconstruct or just use parentEv
+                        rawParent = {
+                            content: parentEv.getContent(),
+                            sender: parentEv.getSender(),
+                            origin_server_ts: parentEv.getTs(),
+                            event_id: parentEv.getId(),
+                            room_id: parentEv.getRoomId(),
+                            type: parentEv.getType()
+                        };
+                    } else {
+                        rawParent = await matrixClient.fetchRoomEvent(ROOM_ID, parentId);
+                    }
+
+                    if (rawParent) {
+                        parentChain.unshift(wrapEvent(rawParent)); // Prepend to show oldest first
+                        currentContent = rawParent.content;
+                    } else {
+                        break;
+                    }
+                } catch (e) {
+                    console.error("Failed to fetch parent event:", e);
+                    break;
+                }
+                depth++;
+            }
+            setParents(parentChain);
 
             // 2. Fetch replies / threads
             try {
+                // To support true recursive views, we first get threads associated with the current event
+                // Matrix threads usually tie all descendants to the root id.
+                // If we are looking at a deep comment, we might have to fetch its threads or replies
                 const threads = await matrixClient.relations(ROOM_ID, eventId, "m.thread", "m.room.message");
-                if (threads?.events) {
-                    setReplies(threads.events);
-                }
+                let fetchedReplies = threads?.events || [];
+
+                // Sort by timestamp for proper chronological ordering within depths
+                fetchedReplies.sort((a: any, b: any) => a.getTs() - b.getTs());
+
+                // Build a flat tree sorted by depth-first
+                const buildTree = (parentId: string, currentDepth = 0): any[] => {
+                    const children = fetchedReplies.filter((e: any) => {
+                        const relates = e.getContent()?.['m.relates_to'];
+                        return relates?.['m.in_reply_to']?.event_id === parentId;
+                    });
+
+                    let result: any[] = [];
+                    children.forEach((child: any) => {
+                        result.push({ event: child, depth: currentDepth });
+                        result = result.concat(buildTree(child.getId(), currentDepth + 1));
+                    });
+                    return result;
+                };
+
+                const threadedReplies = buildTree(eventId, 0);
+                setReplies(threadedReplies);
             } catch (relErr) {
                 console.error("Failed to fetch relations:", relErr);
             }
@@ -201,9 +269,31 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                 <h1 className="font-bold text-xl text-white">Post</h1>
             </div>
 
+            {/* Parent Chain (Ancestry) */}
+            {parents.length > 0 && (
+                <div className="bg-black">
+                    {parents.map((parentEvent) => (
+                        <PostCard
+                            key={parentEvent.getId()}
+                            event={parentEvent}
+                            matrixClient={client}
+                            isDetailView={false} // Parents shouldn't spawn local composers directly, redirect to their thread
+                            showThreadLine={true}
+                            isLastInThread={false}
+                        />
+                    ))}
+                </div>
+            )}
+
             {/* Main Post - We pass it to PostCard directly, styled via it internally */}
-            <div className="border-b border-neutral-800 bg-black">
-                <PostCard event={eventData} matrixClient={client} isDetailView={true} />
+            <div className="border-b border-neutral-800 bg-black relative">
+                <PostCard
+                    event={eventData}
+                    matrixClient={client}
+                    isDetailView={true}
+                    showThreadLine={replies.length > 0}
+                    isLastInThread={false}
+                />
             </div>
 
             {/* Compose Reply Section */}
@@ -235,16 +325,28 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                         No replies yet.
                     </div>
                 ) : (
-                    replies.map((replyEvent, index) => (
-                        <PostCard
-                            key={replyEvent.getId()}
-                            event={replyEvent}
-                            matrixClient={client}
-                            isDetailView={true}
-                            showThreadLine={true}
-                            isLastInThread={index === replies.length - 1}
-                        />
-                    ))
+                    replies.map(({ event: replyEvent, depth }, index) => {
+                        const nextReply = replies[index + 1];
+                        // It's the last in its local thread block if the next item jumps back up visually
+                        const isLastInThread = !nextReply || nextReply.depth <= depth;
+
+                        return (
+                            <div
+                                key={replyEvent.getId()}
+                                className="border-b border-neutral-800"
+                            >
+                                <div style={{ paddingLeft: `${depth * 28}px` }} className="h-full">
+                                    <PostCard
+                                        event={replyEvent}
+                                        matrixClient={client}
+                                        isDetailView={true}
+                                        showThreadLine={true}
+                                        isLastInThread={isLastInThread}
+                                    />
+                                </div>
+                            </div>
+                        );
+                    })
                 )}
             </div>
         </AppShell>
