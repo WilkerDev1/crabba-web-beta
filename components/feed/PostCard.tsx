@@ -279,7 +279,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
     return (
         <div
-            className={`relative border-b border-neutral-800 p-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}
+            className={`relative border-b border-neutral-800 px-3 sm:px-4 py-3 sm:py-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}
             onClick={handleCardClick}
         >
             {/* Thread Line Component */}
@@ -356,12 +356,13 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
                     {/* Media Attachment — rendered below text */}
                     {!isRepost && imageUrl && (
-                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[500px]">
+                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
                             <Link href={`/post/${eventId}`}>
                                 <img
                                     src={imageUrl}
                                     alt={body || 'Post image'}
-                                    className={`w-full h-full object-cover max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
+                                    className={`w-full h-auto object-cover max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
+                                    style={{ aspectRatio: 'auto' }}
                                     loading="lazy"
                                 />
                             </Link>
@@ -459,7 +460,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 function ActionIcon({ icon, count, color, bg, onClick }: { icon: React.ReactNode, count?: number, color: string, bg: string, onClick?: () => void }) {
     return (
         <div className="group flex items-center gap-1 cursor-pointer transition-colors" onClick={onClick}>
-            <div className={`p-2 rounded-full transition-colors ${bg} ${color ? 'group-hover:' + color.split(':')[1] : ''}`}>
+            <div className={`min-w-[2.75rem] min-h-[2.75rem] flex items-center justify-center rounded-full transition-colors ${bg} ${color ? 'group-hover:' + color.split(':')[1] : ''}`}>
                 <span className={`transition-colors ${color ? 'group-hover:' + color.split(':')[1] : ''}`}>
                     {icon}
                 </span>

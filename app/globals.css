@@ -123,7 +123,14 @@
     @apply border-border outline-ring/50;
   }
 
-  body {
+  html, body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
   }
+}
+
+/* Mobile safe-area support for bottom navigation */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Home, Compass, Bell, User, Hash, Box, Search, LogOut, Settings } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
@@ -23,6 +23,7 @@ interface ProfileData {
 
 export function AppShell({ children }: AppShellProps) {
     const router = useRouter();
+    const pathname = usePathname();
     const supabase = createClient();
     const [user, setUser] = useState<any>(null);
     const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -67,22 +68,19 @@ export function AppShell({ children }: AppShellProps) {
     }, [supabase]);
 
     const handleLogout = async () => {
-        // 1. Sign out of Supabase
         await supabase.auth.signOut();
-
-        // 2. Clear Matrix LocalStorage and Memory State
         await clearMatrixSession();
-
-        // 3. Redirect to login
         router.push('/login');
         router.refresh();
     };
 
+    const profileHref = profile?.username ? `/${profile.username}` : user?.email ? `/${user.email.split('@')[0]}` : '#';
+
     return (
         <div className="min-h-screen bg-black text-white flex justify-center">
             <div className="w-full max-w-7xl flex relative">
-                {/* Left Sidebar - Navigation */}
-                <aside className="hidden sm:flex flex-col w-20 xl:w-72 fixed h-screen z-20 border-r border-neutral-800 px-2 py-4 gap-6">
+                {/* Left Sidebar - Hidden on mobile (<lg), icon-only on lg, expanded on xl */}
+                <aside className="hidden lg:flex flex-col w-20 xl:w-72 fixed h-screen z-20 border-r border-neutral-800 px-2 py-4 gap-6">
                     <div className="flex items-center justify-center xl:justify-start px-2">
                         <Link href="/" className="hover:bg-neutral-900 p-2 rounded-full transition-colors">
                             <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
@@ -92,12 +90,12 @@ export function AppShell({ children }: AppShellProps) {
                     </div>
 
                     <nav className="flex-1 flex flex-col gap-2">
-                        <NavItem href="/" icon={<Home className="w-7 h-7" />} label="Home" active />
-                        <NavItem href="/explore" icon={<Compass className="w-7 h-7" />} label="Explore" />
-                        <NavItem href="/fanbox" icon={<Box className="w-7 h-7" />} label="Fanbox" />
-                        <NavItem href="/notifications" icon={<Bell className="w-7 h-7" />} label="Notifications" />
-                        <NavItem href={profile?.username ? `/${profile.username}` : user?.email ? `/${user.email.split('@')[0]}` : '#'} icon={<User className="w-7 h-7" />} label="Profile" />
-                        <NavItem href="/settings" icon={<Settings className="w-7 h-7" />} label="Settings" />
+                        <NavItem href="/" icon={<Home className="w-7 h-7" />} label="Home" active={pathname === '/'} />
+                        <NavItem href="/search" icon={<Search className="w-7 h-7" />} label="Search" active={pathname === '/search'} />
+                        <NavItem href="/fanbox" icon={<Box className="w-7 h-7" />} label="Fanbox" active={pathname === '/fanbox'} />
+                        <NavItem href="/notifications" icon={<Bell className="w-7 h-7" />} label="Notifications" active={pathname === '/notifications'} />
+                        <NavItem href={profileHref} icon={<User className="w-7 h-7" />} label="Profile" active={pathname === profileHref} />
+                        <NavItem href="/settings" icon={<Settings className="w-7 h-7" />} label="Settings" active={pathname === '/settings'} />
                     </nav>
 
                     <div className="p-2">
@@ -139,15 +137,12 @@ export function AppShell({ children }: AppShellProps) {
                 </aside>
 
                 {/* Center - Feed */}
-                <main className="flex-1 min-w-0 sm:ml-20 xl:ml-72 border-r border-neutral-800 max-w-2xl">
-                    <div className="sticky top-0 z-10 backdrop-blur-md bg-black/70 border-b border-neutral-800 p-4">
-                        <h1 className="font-bold text-xl">Home</h1>
-                    </div>
+                <main className="flex-1 min-w-0 lg:ml-20 xl:ml-72 border-r border-neutral-800 max-w-2xl w-full pb-16 lg:pb-0">
                     {children}
                 </main>
 
-                {/* Right Sidebar - Trending */}
-                <aside className="hidden lg:block w-80 pl-8 py-4 sticky top-0 h-screen">
+                {/* Right Sidebar - Trending (hidden below xl) */}
+                <aside className="hidden xl:block w-80 pl-8 py-4 sticky top-0 h-screen">
                     <div className="bg-neutral-900 rounded-full flex items-center px-4 py-2 mb-6 focus-within:ring-1 ring-blue-500">
                         <Search className="w-4 h-4 text-neutral-500 mr-2" />
                         <input
@@ -168,6 +163,22 @@ export function AppShell({ children }: AppShellProps) {
                     </Card>
                 </aside>
             </div>
+
+            {/* ─── Mobile Bottom Navigation Bar ─── */}
+            <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-md border-t border-neutral-800 flex items-center justify-around py-2 px-2 lg:hidden safe-area-bottom">
+                <MobileNavItem href="/" icon={<Home className="w-6 h-6" />} active={pathname === '/'} />
+                <MobileNavItem href="/search" icon={<Search className="w-6 h-6" />} active={pathname === '/search'} />
+
+                {/* Floating Compose Button */}
+                <ComposePostModal>
+                    <button className="w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30 -mt-5 text-2xl font-light active:scale-95 transition-transform">
+                        +
+                    </button>
+                </ComposePostModal>
+
+                <MobileNavItem href="/notifications" icon={<Bell className="w-6 h-6" />} active={pathname === '/notifications'} />
+                <MobileNavItem href={profileHref} icon={<User className="w-6 h-6" />} active={pathname === profileHref} />
+            </nav>
         </div>
     );
 }
@@ -175,12 +186,23 @@ export function AppShell({ children }: AppShellProps) {
 function NavItem({ href, icon, label, active = false }: { href: string; icon: React.ReactNode; label: string; active?: boolean }) {
     return (
         <Link href={href} className="group flex items-center xl:justify-start justify-center p-3 rounded-full hover:bg-neutral-900 transition-colors cursor-pointer w-fit xl:w-full">
-            <div className={`relative ${active ? 'text-white' : 'text-white'}`}>
+            <div className={`relative ${active ? 'text-white' : 'text-neutral-400'}`}>
                 {icon}
             </div>
-            <span className={`ml-4 text-xl hidden xl:block ${active ? 'font-bold' : 'font-normal'}`}>
+            <span className={`ml-4 text-xl hidden xl:block ${active ? 'font-bold text-white' : 'font-normal text-neutral-400'}`}>
                 {label}
             </span>
+        </Link>
+    );
+}
+
+function MobileNavItem({ href, icon, active = false }: { href: string; icon: React.ReactNode; active?: boolean }) {
+    return (
+        <Link
+            href={href}
+            className={`flex items-center justify-center w-12 h-12 rounded-full transition-colors active:scale-95 ${active ? 'text-white' : 'text-neutral-500'}`}
+        >
+            {icon}
         </Link>
     );
 }
