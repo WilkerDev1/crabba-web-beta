@@ -7,6 +7,7 @@ let MATRIX_BASE_URL = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
 const globalForMatrix = global as unknown as {
     matrixClient: MatrixClient | null;
     loginPromise: Promise<MatrixClient | null> | null;
+    startPromise: Promise<void> | null;
     clientStarted: boolean;
     serverOffline: boolean;
     syncBackoffMs: number;
@@ -328,46 +329,78 @@ export const sendEventWithRetry = async (
 };
 
 /**
- * Safely start the Matrix sync client. Prevents duplicate startClient calls
- * caused by React re-renders or HMR.
+ * Safely start the Matrix sync client. Uses a promise-based lock to prevent
+ * duplicate startClient calls from concurrent React renders or HMR.
+ * Auto-heals corrupted IndexedDB stores (prepareLazyLoadingForSync crash).
  */
 export const safeStartClient = async (client: MatrixClient): Promise<void> => {
-    if (globalForMatrix.clientStarted) {
-        return; // Already running, skip
-    }
-
-    if (client.clientRunning) {
-        globalForMatrix.clientStarted = true;
+    // If already running, skip
+    if (globalForMatrix.clientStarted && client.clientRunning) {
         return;
     }
 
-    try {
-        globalForMatrix.clientStarted = true;
-        await client.startClient({
-            initialSyncLimit: 20,
-            lazyLoadMembers: true,
-            pendingEventOrdering: "detached",
-            // Disable presence tracking entirely — Crabba doesn't use online indicators
-            disablePresence: true,
-            // Aggressive sync filter: strip presence, typing, receipts, and bulk state
-            filter: {
-                presence: { not_types: ["*"] },  // No presence events
-                room: {
-                    ephemeral: {
-                        not_types: ["m.typing", "m.receipt"],  // No typing/read receipts
-                    },
-                    state: {
-                        lazy_load_members: true,
-                    },
-                    timeline: {
-                        limit: 20,
-                    },
-                },
-            } as any,
-        } as any);
-    } catch (err) {
-        globalForMatrix.clientStarted = false;
-        throw err;
+    // Promise-based dedup: if another call is already starting, wait for it
+    if (globalForMatrix.startPromise) {
+        return globalForMatrix.startPromise;
     }
+
+    const startOptions = {
+        initialSyncLimit: 20,
+        lazyLoadMembers: true,
+        pendingEventOrdering: "detached",
+        disablePresence: true,
+        filter: {
+            presence: { not_types: ["*"] },
+            room: {
+                ephemeral: {
+                    not_types: ["m.typing", "m.receipt"],
+                },
+                state: {
+                    lazy_load_members: true,
+                },
+                timeline: {
+                    limit: 20,
+                },
+            },
+        } as any,
+    } as any;
+
+    globalForMatrix.startPromise = (async () => {
+        try {
+            await client.startClient(startOptions);
+            globalForMatrix.clientStarted = true;
+        } catch (err: any) {
+            const errStr = String(err?.message || err);
+            console.warn("⚠️ Matrix startClient failed:", errStr);
+
+            // Auto-heal: corrupted IndexedDB store (prepareLazyLoadingForSync crash)
+            if (errStr.includes('prepareLazyLoading') || errStr.includes('store') || errStr.includes('IDB')) {
+                console.warn("🔧 Clearing corrupted Matrix stores and retrying...");
+                try {
+                    await client.clearStores();
+                } catch (clearErr) {
+                    console.warn("Could not clear stores:", clearErr);
+                }
+
+                // Retry once after clearing stores
+                try {
+                    await client.startClient(startOptions);
+                    globalForMatrix.clientStarted = true;
+                    console.log("✅ Matrix sync started after store clear.");
+                } catch (retryErr) {
+                    console.error("❌ Matrix startClient failed even after store clear:", retryErr);
+                    globalForMatrix.clientStarted = false;
+                    throw retryErr;
+                }
+            } else {
+                globalForMatrix.clientStarted = false;
+                throw err;
+            }
+        } finally {
+            globalForMatrix.startPromise = null;
+        }
+    })();
+
+    return globalForMatrix.startPromise;
 };
 
