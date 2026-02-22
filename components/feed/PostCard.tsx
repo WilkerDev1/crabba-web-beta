@@ -13,9 +13,12 @@ interface PostCardProps {
     event: any; // Using any for Matrix Event temporarily, strictly should be MatrixEvent
     matrixClient: any;
     isNested?: boolean;
+    isDetailView?: boolean;
+    isLastInThread?: boolean;
+    showThreadLine?: boolean;
 }
 
-export function PostCard({ event, matrixClient, isNested = false }: PostCardProps) {
+export function PostCard({ event, matrixClient, isNested = false, isDetailView = false, isLastInThread = false, showThreadLine = false }: PostCardProps) {
     const [liked, setLiked] = useState<boolean>(false);
     const [likeCount, setLikeCount] = useState<number>(0);
     const [replyCount, setReplyCount] = useState<number>(0);
@@ -37,6 +40,11 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
     const isRepost = relatesTo?.rel_type === 'm.reference' && !!relatesTo?.event_id;
     const originalEventId = isRepost ? relatesTo.event_id : null;
 
+    // Threading logic
+    const inReplyToId = relatesTo?.['m.in_reply_to']?.event_id;
+    const isThreadReply = relatesTo?.rel_type === 'm.thread';
+    const hasParent = !!inReplyToId;
+
     const accessLevel = content['access_level'] || 'public';
     const hasWarning = !!content['org.crabba.content_warning'];
     const isLocked = accessLevel === 'premium' || hasWarning;
@@ -44,6 +52,7 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
 
     const [originalEvent, setOriginalEvent] = useState<any>(null);
     const [fetchingOriginal, setFetchingOriginal] = useState(false);
+    const [replyToProfile, setReplyToProfile] = useState<{ username: string, senderId: string } | null>(null);
 
     const { profile, loading } = useMatrixProfile(senderId);
 
@@ -107,6 +116,44 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
 
         fetchRelations();
     }, [matrixClient, roomId, eventId, isNested]);
+
+    // Fetch reply context
+    useEffect(() => {
+        if (!matrixClient || !roomId || !hasParent || !inReplyToId || isNested) return;
+
+        const fetchParentContext = async () => {
+            try {
+                // 1. Cache-first strategy: Check if the room timeline already has the event
+                const room = matrixClient.getRoom(roomId);
+                let parentEvent = room?.findEventById(inReplyToId);
+
+                // 2. Network fallback if not in local memory cache
+                if (!parentEvent) {
+                    const rawEvent = await matrixClient.fetchRoomEvent(roomId, inReplyToId);
+                    parentEvent = {
+                        getSender: () => rawEvent.sender,
+                    };
+                }
+
+                if (parentEvent) {
+                    const parentSenderId = parentEvent.getSender();
+                    // We can optionally use the useMatrixProfile hook logic here or fetch the profile from state
+                    // For now we will do a quick room member lookup to get display name
+                    const member = room?.getMember(parentSenderId);
+                    const displayName = member?.name || parentSenderId;
+
+                    setReplyToProfile({
+                        username: displayName,
+                        senderId: parentSenderId
+                    });
+                }
+            } catch (err) {
+                console.log("Failed to fetch parent event context for replying-to label", err);
+            }
+        };
+
+        fetchParentContext();
+    }, [matrixClient, roomId, inReplyToId, hasParent, isNested]);
 
     useEffect(() => {
         if (isRepost && matrixClient && originalEventId && !originalEvent && !fetchingOriginal) {
@@ -221,7 +268,16 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
     const canDelete = myUserId === senderId;
 
     return (
-        <div className={`border-b border-neutral-800 p-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}>
+        <div className={`relative border-b border-neutral-800 p-4 transition-colors cursor-pointer ${isNested ? '' : 'hover:bg-neutral-900/30'}`}>
+            {/* Thread Line Component */}
+            {showThreadLine && !isLastInThread && (
+                <div className="absolute left-[35px] top-[60px] bottom-0 w-[2px] bg-neutral-800" />
+            )}
+
+            {showThreadLine && isLastInThread && (
+                <div className="absolute left-[35px] top-[60px] h-[20px] w-[2px] bg-neutral-800" />
+            )}
+
             {isRepost && !isNested && (
                 <div className="flex items-center gap-2 text-neutral-500 text-sm mb-2 ml-10 font-medium">
                     <Repeat className="w-4 h-4" />
@@ -230,10 +286,11 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
                     </Link>
                 </div>
             )}
-            <div className="flex gap-3">
+
+            <div className="flex gap-3 relative z-10">
                 {!isNested && (
-                    <Link href={`/${senderName}`} className="shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Avatar className="w-10 h-10 hover:opacity-80 transition-opacity">
+                    <Link href={`/${senderName}`} className="shrink-0 relative" onClick={(e) => e.stopPropagation()}>
+                        <Avatar className="w-10 h-10 hover:opacity-80 transition-opacity bg-black">
                             <AvatarImage src={avatarUrl || ''} />
                             <AvatarFallback className="bg-neutral-800 text-neutral-400">
                                 {senderId?.substring(1, 3).toUpperCase()}
@@ -253,6 +310,13 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
                             <span className="text-neutral-500 text-sm hover:underline">
                                 {timestamp ? formatDistanceToNow(timestamp, { addSuffix: true }) : ''}
                             </span>
+                        </div>
+                    )}
+
+                    {/* Replying To Visual Context */}
+                    {!isRepost && hasParent && replyToProfile && !isNested && (
+                        <div className="text-neutral-500 text-sm mb-2">
+                            Replying to <Link href={`/${replyToProfile.username}`} className="text-blue-500 hover:underline" onClick={e => e.stopPropagation()}>@{replyToProfile.username}</Link>
                         </div>
                     )}
 
@@ -316,9 +380,17 @@ export function PostCard({ event, matrixClient, isNested = false }: PostCardProp
 
                     {!isNested && (
                         <div className="flex justify-between text-neutral-500 max-w-md mt-3">
-                            <Link href={`/post/${eventId}`}>
-                                <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
-                            </Link>
+                            {isDetailView ? (
+                                <ComposePostModal replyToEventId={eventId} defaultRoomId={roomId} onPostCreated={() => { }}>
+                                    <div onClick={e => e.stopPropagation()}>
+                                        <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
+                                    </div>
+                                </ComposePostModal>
+                            ) : (
+                                <Link href={`/post/${eventId}`}>
+                                    <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
+                                </Link>
+                            )}
                             <ActionIcon
                                 icon={isReposting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className={`w-4 h-4 ${isRepost ? 'text-green-500' : ''}`} />}
                                 count={repostCount}

@@ -16,9 +16,10 @@ interface GlobalTimelineProps {
     filterUserId?: string;
     filterType?: 'all' | 'media' | 'replies';
     searchQuery?: string;
+    filterThreadId?: string;
 }
 
-export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }: GlobalTimelineProps) {
+export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, filterThreadId }: GlobalTimelineProps) {
     const [events, setEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -134,6 +135,18 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                     if (filterType === 'replies') {
                         const hasRelatesTo = content['m.relates_to'];
                         if (!hasRelatesTo) return false;
+                    }
+
+                    if (filterThreadId) {
+                        const relatesTo = content['m.relates_to'];
+                        if (!relatesTo) return false;
+
+                        // It must either be a direct reply in the thread, or a deeper reply falling back to the thread
+                        const isThreadRoot = relatesTo.event_id === filterThreadId;
+                        const isInReplyTo = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+
+                        // Note: Matrix threads usually point event_id to the root of the thread.
+                        if (!isThreadRoot && !isInReplyTo) return false;
                     }
 
                     if (searchQuery) {

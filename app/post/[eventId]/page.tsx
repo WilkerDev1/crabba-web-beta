@@ -203,7 +203,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
 
             {/* Main Post - We pass it to PostCard directly, styled via it internally */}
             <div className="border-b border-neutral-800 bg-black">
-                <PostCard event={eventData} matrixClient={client} />
+                <PostCard event={eventData} matrixClient={client} isDetailView={true} />
             </div>
 
             {/* Compose Reply Section */}
@@ -235,8 +235,15 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                         No replies yet.
                     </div>
                 ) : (
-                    replies.map(replyEvent => (
-                        <PostCard key={replyEvent.getId()} event={replyEvent} matrixClient={client} />
+                    replies.map((replyEvent, index) => (
+                        <PostCard
+                            key={replyEvent.getId()}
+                            event={replyEvent}
+                            matrixClient={client}
+                            isDetailView={true}
+                            showThreadLine={true}
+                            isLastInThread={index === replies.length - 1}
+                        />
                     ))
                 )}
             </div>

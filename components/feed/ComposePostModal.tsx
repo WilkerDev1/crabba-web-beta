@@ -97,24 +97,31 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                 let inReplyToId = replyToEventId;
 
                 try {
-                    let currentTargetId = replyToEventId;
-                    let targetEvent = await matrixClient.fetchRoomEvent(currentRoomId, currentTargetId);
+                    // Cache-first lookup for the target event
+                    const room = matrixClient.getRoom(currentRoomId);
+                    let targetEvent = room?.findEventById(replyToEventId); // Returns MatrixEvent if found
 
-                    let depth = 0;
-                    while (targetEvent?.content?.["m.relates_to"]?.event_id && depth < 5) {
-                        const rel = targetEvent.content["m.relates_to"];
-                        if (rel.event_id) currentTargetId = rel.event_id;
+                    let targetContent: any = targetEvent ? targetEvent.getContent() : null;
 
-                        if (depth === 0 && rel.rel_type === "m.reference") {
-                            inReplyToId = currentTargetId;
+                    if (!targetContent) {
+                        try {
+                            const rawEvent = await matrixClient.fetchRoomEvent(currentRoomId, replyToEventId);
+                            targetContent = rawEvent.content || null;
+                        } catch (e) {
+                            console.log("Could not fetch target event for thread resolution, fallback to simple thread", e);
                         }
-
-                        targetEvent = await matrixClient.fetchRoomEvent(currentRoomId, currentTargetId);
-                        depth++;
                     }
-                    rootId = currentTargetId;
+
+                    if (targetContent && targetContent["m.relates_to"]) {
+                        const rel = targetContent["m.relates_to"];
+                        // If the target is ALREADY a thread reply, it points to the root.
+                        // So our new reply should also point to that same root.
+                        if (rel.rel_type === "m.thread" && rel.event_id) {
+                            rootId = rel.event_id;
+                        }
+                    }
                 } catch (e) {
-                    console.log("Could not fetch target event for thread resolution", e);
+                    console.log("Error resolving thread root", e);
                 }
 
                 relatesTo = {
