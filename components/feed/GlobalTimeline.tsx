@@ -47,16 +47,18 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
 
             setClient(matrixClient);
 
-            // Wait until client is prepared before we attempt any room operations
-            if (matrixClient.getSyncState() !== 'PREPARED') {
+            // Instant Cache Access - Always check room FIRST
+            let room = matrixClient.getRoom(ROOM_ID);
+
+            // Wait until client is prepared ONLY if room is NOT cached
+            if (!room && matrixClient.getSyncState() !== 'PREPARED') {
                 setLoadingMessage("Sincronizando con la red Matrix...");
 
                 await new Promise<void>((resolve) => {
                     let retries = 0;
-                    let lastState = matrixClient.getSyncState();
 
                     const checkSync = () => {
-                        if (matrixClient.getSyncState() === 'PREPARED') {
+                        if (matrixClient.getRoom(ROOM_ID) || matrixClient.getSyncState() === 'PREPARED') {
                             cleanup();
                             resolve();
                             return true;
@@ -65,46 +67,17 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                     };
 
                     const syncListener = (state: string) => {
-                        lastState = state as any;
                         if (state === 'PREPARED') {
                             checkSync();
-                        } else if (state === 'ERROR') {
-                            console.warn("Matrix sync ERROR state encountered. Waiting for reconnect...");
-                        } else if (state === 'RECONNECTING') {
-                            setLoadingMessage("Reconectando a la red Matrix...");
                         }
                     };
 
                     const pollInterval = setInterval(() => {
                         if (!checkSync()) {
                             retries++;
-
-                            // If we are actively reconnecting or syncing, give it more time 
-                            // before declaring definitive failure.
-                            if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
-                                // Session Recovery Logic: if it's been struggling for ~10 seconds (20 ticks), force a restart
-                                if (retries === 20) {
-                                    console.warn("Session Recovery: Force restarting Matrix client due to stalled connection.");
-                                    setLoadingMessage("Restaurando conexión a la red Matrix...");
-                                    matrixClient.stopClient();
-                                    matrixClient.startClient({
-                                        initialSyncLimit: 20,
-                                        pollTimeout: 20000,
-                                        pendingEventOrdering: "detached"
-                                    } as any);
-                                }
-
-                                // Allow infinite retries if the client claims it's just slow to reconnect
-                                // (If it hasn't recovered by 60 ticks / 30s, we abort entirely)
-                                if (retries < 60) {
-                                    return;
-                                }
-                            }
-
-                            // Use exponential-like backoff feeling by extending max retries
-                            // Fallback timeout after ~5 seconds if state isn't changing to something promising
-                            if (retries >= 10 && lastState !== 'RECONNECTING' && lastState !== 'SYNCING') {
-                                console.warn("Sync loop timeout reached. Aborting waiting for room.");
+                            // Simple Watchdog: Stop waiting after 20 seconds, DO NOT restart client
+                            if (retries >= 40) {
+                                console.warn("Sync loop max wait reached. Aborting wait.");
                                 cleanup();
                                 resolve();
                             }
@@ -123,11 +96,10 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                 setLoadingMessage(null);
             }
 
-            // Instant Room Switching
-            // Try to get room from cache
-            let room = matrixClient.getRoom(ROOM_ID);
+            // Re-fetch room after potential wait
+            room = matrixClient.getRoom(ROOM_ID);
 
-            // If room isn't in cache, fetch it using joinRoom without restarting sync
+            // If room still isn't in cache, attempt joinRoom
             if (!room && ROOM_ID) {
                 console.log(`[GlobalTimeline] Room not in cache, fetching/joining: ${ROOM_ID}`);
                 try {

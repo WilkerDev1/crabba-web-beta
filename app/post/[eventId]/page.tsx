@@ -45,15 +45,18 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             }
             setClient(matrixClient);
 
-            if (matrixClient.getSyncState() !== 'PREPARED') {
+            // Instant Cache Access - Always check room FIRST
+            let room = matrixClient.getRoom(ROOM_ID);
+
+            // Wait until client is prepared ONLY if room is NOT cached
+            if (!room && matrixClient.getSyncState() !== 'PREPARED') {
                 setLoadingMessage("Sincronizando con la red Matrix...");
 
                 await new Promise<void>((resolve) => {
                     let retries = 0;
-                    let lastState = matrixClient.getSyncState();
 
                     const checkSync = () => {
-                        if (matrixClient.getSyncState() === 'PREPARED') {
+                        if (matrixClient.getRoom(ROOM_ID) || matrixClient.getSyncState() === 'PREPARED') {
                             cleanup();
                             resolve();
                             return true;
@@ -62,39 +65,17 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                     };
 
                     const syncListener = (state: string) => {
-                        lastState = state as any;
                         if (state === 'PREPARED') {
                             checkSync();
-                        } else if (state === 'ERROR') {
-                            console.warn("Matrix sync ERROR state encountered. Waiting for reconnect...");
-                        } else if (state === 'RECONNECTING') {
-                            setLoadingMessage("Reconectando a la red Matrix...");
                         }
                     };
 
                     const pollInterval = setInterval(() => {
                         if (!checkSync()) {
                             retries++;
-
-                            if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
-                                if (retries === 20) {
-                                    console.warn("Session Recovery: Force restarting Matrix client due to stalled connection.");
-                                    setLoadingMessage("Restaurando conexión a la red Matrix...");
-                                    matrixClient.stopClient();
-                                    matrixClient.startClient({
-                                        initialSyncLimit: 20,
-                                        pollTimeout: 20000,
-                                        pendingEventOrdering: "detached"
-                                    } as any);
-                                }
-
-                                if (retries < 60) {
-                                    return;
-                                }
-                            }
-
-                            if (retries >= 10 && lastState !== 'RECONNECTING' && lastState !== 'SYNCING') {
-                                console.warn("Sync loop timeout reached. Aborting waiting for room.");
+                            // Simple Watchdog: Stop waiting after 20 seconds, DO NOT restart client
+                            if (retries >= 40) {
+                                console.warn("Sync loop max wait reached. Aborting wait.");
                                 cleanup();
                                 resolve();
                             }
@@ -113,7 +94,10 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                 setLoadingMessage(null);
             }
 
-            let room = matrixClient.getRoom(ROOM_ID);
+            // Re-fetch room after potential wait
+            room = matrixClient.getRoom(ROOM_ID);
+
+            // If room still isn't in cache, attempt joinRoom
             if (!room && ROOM_ID) {
                 console.log(`[PostDetail] Room not in cache, fetching/joining: ${ROOM_ID}`);
                 try {

@@ -52,7 +52,8 @@ export function AppShell({ children }: AppShellProps) {
                         await matrixClient.startClient({
                             initialSyncLimit: 20,
                             pollTimeout: 20000,
-                            pendingEventOrdering: "detached"
+                            pendingEventOrdering: "detached",
+                            lazyLoadMembers: true
                         } as any);
                     }
                 } catch (err) {
