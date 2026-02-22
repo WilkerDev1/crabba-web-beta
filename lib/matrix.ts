@@ -110,7 +110,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
 
             // Start client to sync
             if (!client.clientRunning) {
-                await client.startClient({ initialSyncLimit: 20 });
+                await client.startClient({ initialSyncLimit: 20, pollTimeout: 25000 } as any);
             }
 
             globalForMatrix.matrixClient = client;

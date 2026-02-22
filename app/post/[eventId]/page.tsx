@@ -55,6 +55,7 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
 
                 await new Promise<void>((resolve) => {
                     let retries = 0;
+                    let lastState = matrixClient.getSyncState();
 
                     const checkRoom = () => {
                         const r = matrixClient.getRoom(ROOM_ID);
@@ -68,15 +69,25 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
                     };
 
                     const syncListener = (state: string) => {
+                        lastState = state as any;
                         if (state === 'PREPARED') {
                             checkRoom();
+                        } else if (state === 'ERROR') {
+                            console.warn("Matrix sync ERROR state encountered. Waiting for reconnect...");
+                        } else if (state === 'RECONNECTING') {
+                            setLoadingMessage("Reconectando a la red Matrix...");
                         }
                     };
 
                     const pollInterval = setInterval(() => {
                         if (!checkRoom()) {
+                            if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
+                                return;
+                            }
+
                             retries++;
-                            if (retries >= 4) {
+                            if (retries >= 10) {
+                                console.warn("Sync loop timeout reached. Aborting waiting for room.");
                                 cleanup();
                                 resolve();
                             }

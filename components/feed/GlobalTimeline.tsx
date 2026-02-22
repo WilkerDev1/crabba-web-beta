@@ -64,6 +64,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
 
                 await new Promise<void>((resolve) => {
                     let retries = 0;
+                    let lastState = matrixClient.getSyncState();
 
                     const checkRoom = () => {
                         const r = matrixClient.getRoom(ROOM_ID);
@@ -77,15 +78,30 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
                     };
 
                     const syncListener = (state: string) => {
+                        lastState = state as any;
                         if (state === 'PREPARED') {
                             checkRoom();
+                        } else if (state === 'ERROR') {
+                            console.warn("Matrix sync ERROR state encountered. Waiting for reconnect...");
+                        } else if (state === 'RECONNECTING') {
+                            setLoadingMessage("Reconectando a la red Matrix...");
                         }
                     };
 
                     const pollInterval = setInterval(() => {
                         if (!checkRoom()) {
+                            // If we are actively reconnecting or syncing, give it more time 
+                            // before declaring definitive failure.
+                            if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
+                                // Allow infinite retries if the client claims it's just slow to reconnect
+                                return;
+                            }
+
                             retries++;
-                            if (retries >= 4) {
+                            // Use exponential-like backoff feeling by extending max retries
+                            // Fallback timeout after ~5 seconds if state isn't changing to something promising
+                            if (retries >= 10) {
+                                console.warn("Sync loop timeout reached. Aborting waiting for room.");
                                 cleanup();
                                 resolve();
                             }
