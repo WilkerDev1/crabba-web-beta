@@ -6,7 +6,7 @@ import { PostCard } from './PostCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { RefreshCcw, Loader2, Flame, Clock } from 'lucide-react';
+import { RefreshCcw, Loader2, Flame, Clock, AlertTriangle } from 'lucide-react';
 
 import { ComposePost } from './ComposePost';
 
@@ -49,6 +49,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [roomError, setRoomError] = useState<string | null>(null);
     const [client, setClient] = useState<any>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const observerTarget = useRef<HTMLDivElement>(null);
@@ -132,12 +133,18 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
             // If room still isn't in cache, attempt joinRoom
             if (!room && ROOM_ID) {
-                console.log(`[GlobalTimeline] Room not in cache, fetching/joining: ${ROOM_ID}`);
+                console.log(`[GlobalTimeline] Room not in cache, attempting to join: ${ROOM_ID}`);
                 try {
                     await matrixClient.joinRoom(ROOM_ID);
                     room = matrixClient.getRoom(ROOM_ID);
-                } catch (joinError) {
-                    console.error(`[GlobalTimeline] Failed to join room:`, joinError);
+                } catch (joinError: any) {
+                    const errCode = joinError?.data?.errcode || joinError?.errcode || '';
+                    const errMsg = joinError?.data?.error || joinError?.message || String(joinError);
+                    console.error(`[GlobalTimeline] Failed to join room:`, errCode, errMsg);
+                    setRoomError(`${errCode ? errCode + ': ' : ''}${errMsg}`);
+                    setLoading(false);
+                    setLoadingMessage(null);
+                    return; // BREAK — do not fall through to "Room not found"
                 }
             }
 
@@ -194,8 +201,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 });
                 setEvents(messageEvents);
             } else {
-                console.warn('Room not found in store, executing initial sync might be needed or join.');
-                setError('Room not found. Please ensure the bot is joined to the room.');
+                // Room truly not found after sync + join attempt
+                setRoomError(`Room ${ROOM_ID} not found. Verify NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID is correct.`);
             }
 
         } catch (err: any) {
@@ -419,6 +426,26 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         </div>
                     </div>
                 ))}
+            </div>
+        );
+    }
+
+    if (roomError) {
+        return (
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4">
+                <AlertTriangle className="w-12 h-12 text-amber-500" />
+                <h2 className="text-lg font-bold text-red-400">Error al acceder a la sala global</h2>
+                <p className="text-sm text-neutral-400 max-w-md">
+                    El servidor Matrix rechazó la conexión a la sala. Es posible que el ID de la sala en las variables de entorno
+                    (<code className="text-xs bg-neutral-800 px-1 py-0.5 rounded">NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID</code>) sea incorrecto,
+                    que la sala haya sido eliminada, o que sea privada.
+                </p>
+                <code className="text-xs text-neutral-600 font-mono bg-neutral-900 px-3 py-2 rounded max-w-md break-all">
+                    {roomError}
+                </code>
+                <Button onClick={() => { setRoomError(null); fetchMessages(); }} variant="outline" className="mt-2">
+                    <RefreshCcw className="mr-2 w-4 h-4" /> Reintentar
+                </Button>
             </div>
         );
     }
