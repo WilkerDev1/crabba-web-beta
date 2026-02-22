@@ -173,17 +173,31 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             setParents(parentChain);
 
             // 2. Fetch replies / threads
+            // KEY FIX: Matrix threads reference the ROOT event_id. So if we're viewing
+            // a deep comment, we must find the root first, then fetch ALL thread descendants
+            // from the root, and then filter for replies to THIS specific eventId.
             try {
-                // To support true recursive views, we first get threads associated with the current event
-                // Matrix threads usually tie all descendants to the root id.
-                // If we are looking at a deep comment, we might have to fetch its threads or replies
-                const threads = await matrixClient.relations(ROOM_ID, eventId, "m.thread", "m.room.message");
+                // Determine the thread root. If this event IS a thread reply, its
+                // m.relates_to.event_id (with rel_type m.thread) points to the root.
+                // If this event IS the root, then we query relations on itself.
+                const eventContent = eventJson.content;
+                const eventRelation = eventContent?.['m.relates_to'];
+                let threadRootId = eventId; // Default: this event is the root
+
+                if (eventRelation?.rel_type === 'm.thread' && eventRelation?.event_id) {
+                    threadRootId = eventRelation.event_id;
+                } else if (parentChain.length > 0) {
+                    // If we have parents, the topmost parent is the root
+                    threadRootId = parentChain[0].getId();
+                }
+
+                const threads = await matrixClient.relations(ROOM_ID, threadRootId, "m.thread", "m.room.message");
                 let fetchedReplies = threads?.events || [];
 
                 // Sort by timestamp for proper chronological ordering within depths
                 fetchedReplies.sort((a: any, b: any) => a.getTs() - b.getTs());
 
-                // Build a flat tree sorted by depth-first
+                // Build a flat tree sorted by depth-first, starting from THIS event
                 const buildTree = (parentId: string, currentDepth = 0): any[] => {
                     const children = fetchedReplies.filter((e: any) => {
                         const relates = e.getContent()?.['m.relates_to'];

@@ -94,34 +94,58 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
             let relatesTo = undefined;
             if (replyToEventId) {
                 let rootId = replyToEventId;
-                let inReplyToId = replyToEventId;
+                const inReplyToId = replyToEventId; // Always the exact comment clicked
 
                 try {
-                    // Cache-first lookup for the target event
+                    // Resolve the thread root by inspecting the target event.
+                    // Strategy:
+                    // 1. If target is already in a thread (rel_type: m.thread), its event_id IS the root.
+                    // 2. If target has m.in_reply_to but no m.thread, walk up to find the root.
+                    // 3. If target has no relations, IT is the root.
                     const room = matrixClient.getRoom(currentRoomId);
-                    let targetEvent = room?.findEventById(replyToEventId); // Returns MatrixEvent if found
 
-                    let targetContent: any = targetEvent ? targetEvent.getContent() : null;
-
-                    if (!targetContent) {
+                    const getContent = async (eId: string): Promise<any> => {
+                        const cached = room?.findEventById(eId);
+                        if (cached) return cached.getContent();
                         try {
-                            const rawEvent = await matrixClient.fetchRoomEvent(currentRoomId, replyToEventId);
-                            targetContent = rawEvent.content || null;
-                        } catch (e) {
-                            console.log("Could not fetch target event for thread resolution, fallback to simple thread", e);
-                        }
-                    }
+                            const raw = await matrixClient.fetchRoomEvent(currentRoomId, eId);
+                            return raw.content || null;
+                        } catch { return null; }
+                    };
 
-                    if (targetContent && targetContent["m.relates_to"]) {
+                    let targetContent = await getContent(replyToEventId);
+
+                    if (targetContent?.["m.relates_to"]) {
                         const rel = targetContent["m.relates_to"];
-                        // If the target is ALREADY a thread reply, it points to the root.
-                        // So our new reply should also point to that same root.
                         if (rel.rel_type === "m.thread" && rel.event_id) {
+                            // Target is already in a thread — use its root
                             rootId = rel.event_id;
+                        } else if (rel["m.in_reply_to"]?.event_id) {
+                            // Target is a simple reply. Walk up the chain (max 5) to find root.
+                            let currentId = rel["m.in_reply_to"].event_id;
+                            let depth = 0;
+                            while (currentId && depth < 5) {
+                                const parentContent = await getContent(currentId);
+                                const parentRel = parentContent?.["m.relates_to"];
+                                if (parentRel?.rel_type === "m.thread" && parentRel?.event_id) {
+                                    rootId = parentRel.event_id;
+                                    break;
+                                } else if (parentRel?.["m.in_reply_to"]?.event_id) {
+                                    rootId = currentId; // This parent is a candidate root
+                                    currentId = parentRel["m.in_reply_to"].event_id;
+                                } else {
+                                    // No more relations — this is the root
+                                    rootId = currentId;
+                                    break;
+                                }
+                                depth++;
+                            }
                         }
+                        // else: target has no thread or reply relation — it IS the root (rootId = replyToEventId)
                     }
+                    // else: target has no m.relates_to — it IS the root
                 } catch (e) {
-                    console.log("Error resolving thread root", e);
+                    console.log("Error resolving thread root, using target as root", e);
                 }
 
                 relatesTo = {

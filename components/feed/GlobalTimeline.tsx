@@ -141,12 +141,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         const relatesTo = content['m.relates_to'];
                         if (!relatesTo) return false;
 
-                        // It must either be a direct reply in the thread, or a deeper reply falling back to the thread
-                        const isThreadRoot = relatesTo.event_id === filterThreadId;
-                        const isInReplyTo = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+                        // Accept any event that belongs to the same thread.
+                        // Per Matrix spec, all thread replies have rel_type 'm.thread'
+                        // with event_id pointing to the thread root.
+                        // Also accept events whose m.in_reply_to directly targets this event
+                        // (covers the case where the filterThreadId IS a specific event, not just the root).
+                        const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
+                        const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
 
-                        // Note: Matrix threads usually point event_id to the root of the thread.
-                        if (!isThreadRoot && !isInReplyTo) return false;
+                        if (!isThreadMember && !isDirectReply) return false;
                     }
 
                     if (searchQuery) {
