@@ -269,6 +269,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
     const myUserId = matrixClient?.getUserId();
     const canDelete = myUserId === senderId;
+    const [copied, setCopied] = useState(false);
 
     const handleCardClick = (e: React.MouseEvent) => {
         const target = e.target as HTMLElement;
@@ -426,7 +427,18 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 bg="group-hover:bg-pink-500/10"
                                 onClick={handleLike}
                             />
-                            <ActionIcon icon={<Share className="w-4 h-4" />} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
+                            <ActionIcon
+                                icon={copied ? <Share className="w-4 h-4 text-green-400" /> : <Share className="w-4 h-4" />}
+                                color={copied ? "text-green-400" : "group-hover:text-blue-500"}
+                                bg="group-hover:bg-blue-500/10"
+                                onClick={() => {
+                                    const url = `${window.location.origin}/post/${eventId}`;
+                                    navigator.clipboard.writeText(url).then(() => {
+                                        setCopied(true);
+                                        setTimeout(() => setCopied(false), 2000);
+                                    }).catch(() => { });
+                                }}
+                            />
                             {canDelete && (
                                 <ActionIcon
                                     icon={isDeleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
@@ -460,8 +472,14 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 }
 
 function ActionIcon({ icon, count, color, bg, onClick }: { icon: React.ReactNode, count?: number, color: string, bg: string, onClick?: () => void }) {
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onClick?.();
+    };
+
     return (
-        <div className="group flex items-center gap-1 cursor-pointer transition-colors" onClick={onClick}>
+        <div className="group flex items-center gap-1 cursor-pointer transition-colors" onClick={handleClick}>
             <div className={`min-w-[2.75rem] min-h-[2.75rem] flex items-center justify-center rounded-full transition-colors ${bg} ${color ? 'group-hover:' + color.split(':')[1] : ''}`}>
                 <span className={`transition-colors ${color ? 'group-hover:' + color.split(':')[1] : ''}`}>
                     {icon}
