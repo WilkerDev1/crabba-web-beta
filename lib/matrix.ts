@@ -354,20 +354,6 @@ export const safeStartClient = async (client: MatrixClient): Promise<void> => {
         lazyLoadMembers: true,
         pendingEventOrdering: "detached",
         disablePresence: true,
-        filter: {
-            presence: { not_types: ["*"] },
-            room: {
-                ephemeral: {
-                    not_types: ["m.typing", "m.receipt"],
-                },
-                state: {
-                    lazy_load_members: true,
-                },
-                timeline: {
-                    limit: 20,
-                },
-            },
-        } as any,
     } as any;
 
     globalForMatrix.startPromise = (async () => {
