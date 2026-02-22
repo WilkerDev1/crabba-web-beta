@@ -90,17 +90,33 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery }
 
                     const pollInterval = setInterval(() => {
                         if (!checkRoom()) {
+                            retries++;
+
                             // If we are actively reconnecting or syncing, give it more time 
                             // before declaring definitive failure.
                             if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
+                                // Session Recovery Logic: if it's been struggling for ~10 seconds (20 ticks), force a restart
+                                if (retries === 20) {
+                                    console.warn("Session Recovery: Force restarting Matrix client due to stalled connection.");
+                                    setLoadingMessage("Restaurando conexión a la red Matrix...");
+                                    matrixClient.stopClient();
+                                    matrixClient.startClient({
+                                        initialSyncLimit: 20,
+                                        pollTimeout: 20000,
+                                        pendingEventOrdering: "detached"
+                                    } as any);
+                                }
+
                                 // Allow infinite retries if the client claims it's just slow to reconnect
-                                return;
+                                // (If it hasn't recovered by 60 ticks / 30s, we abort entirely)
+                                if (retries < 60) {
+                                    return;
+                                }
                             }
 
-                            retries++;
                             // Use exponential-like backoff feeling by extending max retries
                             // Fallback timeout after ~5 seconds if state isn't changing to something promising
-                            if (retries >= 10) {
+                            if (retries >= 10 && lastState !== 'RECONNECTING' && lastState !== 'SYNCING') {
                                 console.warn("Sync loop timeout reached. Aborting waiting for room.");
                                 cleanup();
                                 resolve();

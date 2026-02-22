@@ -41,6 +41,13 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                 accessToken = localStorage.getItem('matrix_access_token');
                 userId = localStorage.getItem('matrix_user_id');
                 deviceId = localStorage.getItem('matrix_device_id');
+
+                // Mandatory Unique Device IDs per browser session to prevent Sync Clashing
+                if (!deviceId) {
+                    deviceId = `crabba-web-${crypto.randomUUID()}`;
+                    localStorage.setItem('matrix_device_id', deviceId);
+                    console.log('Generated unique deviceId for this browser session:', deviceId);
+                }
             }
 
             let client: MatrixClient;
@@ -108,9 +115,27 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                 }
             }
 
+            // Bind error handlers for resilient sync recovery
+            client.on("sync" as any, (state: string, prevState: string, data: any) => {
+                if (state === 'ERROR') {
+                    let errMessage = data?.error?.message || "Unknown error";
+                    console.error("Matrix Sync Error Details:", errMessage);
+
+                    if (errMessage.includes("M_UNKNOWN_TOKEN")) {
+                        console.warn("Matrix token rejected. Client needs to re-auth.");
+                        // Handle re-auth logic if needed, but for now we log.
+                    }
+                }
+            });
+
             // Start client to sync
             if (!client.clientRunning) {
-                await client.startClient({ initialSyncLimit: 20, pollTimeout: 25000 } as any);
+                // Ensure detached ordering and 20s timeout for Cloudflare safety
+                await client.startClient({
+                    initialSyncLimit: 20,
+                    pollTimeout: 20000,
+                    pendingEventOrdering: "detached"
+                } as any);
             }
 
             globalForMatrix.matrixClient = client;

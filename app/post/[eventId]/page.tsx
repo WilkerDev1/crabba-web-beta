@@ -81,12 +81,26 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
 
                     const pollInterval = setInterval(() => {
                         if (!checkRoom()) {
+                            retries++;
+
                             if (lastState === 'RECONNECTING' || lastState === 'SYNCING') {
-                                return;
+                                if (retries === 20) {
+                                    console.warn("Session Recovery: Force restarting Matrix client due to stalled connection.");
+                                    setLoadingMessage("Restaurando conexión a la red Matrix...");
+                                    matrixClient.stopClient();
+                                    matrixClient.startClient({
+                                        initialSyncLimit: 20,
+                                        pollTimeout: 20000,
+                                        pendingEventOrdering: "detached"
+                                    } as any);
+                                }
+
+                                if (retries < 60) {
+                                    return;
+                                }
                             }
 
-                            retries++;
-                            if (retries >= 10) {
+                            if (retries >= 10 && lastState !== 'RECONNECTING' && lastState !== 'SYNCING') {
                                 console.warn("Sync loop timeout reached. Aborting waiting for room.");
                                 cleanup();
                                 resolve();
