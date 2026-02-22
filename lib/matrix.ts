@@ -1,17 +1,75 @@
 import type { MatrixClient } from 'matrix-js-sdk';
 
 const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
-const MATRIX_BASE_URL = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
+let MATRIX_BASE_URL = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
 
 // Global reference for development HMR to prevent multiple instances
 const globalForMatrix = global as unknown as {
     matrixClient: MatrixClient | null;
     loginPromise: Promise<MatrixClient | null> | null;
     clientStarted: boolean;
+    serverOffline: boolean;
+    syncBackoffMs: number;
 };
 
 export const getSharedClient = (): MatrixClient | null => {
     return globalForMatrix.matrixClient;
+};
+
+// ─── Server Health & Status ───
+
+export const getServerStatus = (): boolean => {
+    return !!globalForMatrix.serverOffline;
+};
+
+export const setServerStatus = (offline: boolean): void => {
+    globalForMatrix.serverOffline = offline;
+};
+
+/**
+ * Get the effective base URL, checking localStorage for a user-updated tunnel URL.
+ */
+export const getEffectiveBaseUrl = (): string => {
+    if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('matrix_homeserver_url');
+        if (stored) return stored.replace(/\/+$/, '');
+    }
+    return MATRIX_BASE_URL;
+};
+
+/**
+ * Persist a new Matrix homeserver base URL (e.g., new Cloudflare tunnel).
+ */
+export const setBaseUrl = (url: string): void => {
+    const clean = url.replace(/\/+$/, '');
+    MATRIX_BASE_URL = clean;
+    if (typeof window !== 'undefined') {
+        localStorage.setItem('matrix_homeserver_url', clean);
+    }
+};
+
+/**
+ * Ping /_matrix/client/versions to verify the homeserver is reachable.
+ * Returns true if healthy, false if unreachable.
+ */
+export const checkServerHealth = async (): Promise<boolean> => {
+    const baseUrl = getEffectiveBaseUrl();
+    if (!baseUrl) {
+        globalForMatrix.serverOffline = true;
+        return false;
+    }
+    try {
+        const res = await fetch(`${baseUrl}/_matrix/client/versions`, {
+            signal: AbortSignal.timeout(8000), // 8s timeout
+        });
+        const healthy = res.ok;
+        globalForMatrix.serverOffline = !healthy;
+        if (healthy) globalForMatrix.syncBackoffMs = 0;
+        return healthy;
+    } catch {
+        globalForMatrix.serverOffline = true;
+        return false;
+    }
 };
 
 export const getMatrixClient = async (): Promise<MatrixClient | null> => {
@@ -122,11 +180,26 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
 
             // Bind error handlers for resilient sync recovery
             client.on("sync" as any, (state: string, prevState: string, data: any) => {
+                if (state === 'SYNCING' || state === 'PREPARED') {
+                    globalForMatrix.serverOffline = false;
+                    globalForMatrix.syncBackoffMs = 0;
+                }
+
                 if (state === 'ERROR') {
                     let errMessage = data?.error?.message || "Unknown error";
 
-                    // Silence context canceled on soft navigations — add brief delay for network recovery
-                    if (errMessage.includes("context canceled") || errMessage.includes("fetch failed")) {
+                    // DNS / network-level failures — apply exponential backoff
+                    const isDnsError = errMessage.includes("context canceled")
+                        || errMessage.includes("fetch failed")
+                        || errMessage.includes("ERR_NAME_NOT_RESOLVED")
+                        || errMessage.includes("NXDOMAIN")
+                        || errMessage.includes("NetworkError");
+
+                    if (isDnsError) {
+                        globalForMatrix.serverOffline = true;
+                        const backoff = Math.min((globalForMatrix.syncBackoffMs || 1000) * 2, 30000);
+                        globalForMatrix.syncBackoffMs = backoff;
+                        console.warn(`⏳ Network error, backing off ${backoff}ms before next sync attempt`);
                         return;
                     }
 

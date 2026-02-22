@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Home, Compass, Bell, User, Hash, Box, Search, LogOut, Settings } from 'lucide-react';
+import { Home, Compass, Bell, User, Hash, Box, Search, LogOut, Settings, WifiOff, RefreshCcw, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Card } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { createClient } from '../../lib/supabase/client';
-import { clearMatrixSession, getMatrixClient, safeStartClient } from '../../lib/matrix';
+import { clearMatrixSession, getMatrixClient, safeStartClient, checkServerHealth, getServerStatus, setBaseUrl, getEffectiveBaseUrl } from '../../lib/matrix';
 import { ComposePostModal } from '../feed/ComposePostModal';
 
 interface AppShellProps {
@@ -29,6 +29,11 @@ export function AppShell({ children }: AppShellProps) {
     const [profile, setProfile] = useState<ProfileData | null>(null);
     const [loadingAuth, setLoadingAuth] = useState(true);
 
+    const [serverOffline, setServerOffline] = useState(false);
+    const [retrying, setRetrying] = useState(false);
+    const [newTunnelUrl, setNewTunnelUrl] = useState('');
+    const [showUrlInput, setShowUrlInput] = useState(false);
+
     useEffect(() => {
         const fetchUserAndProfile = async () => {
             const { data: { user } } = await supabase.auth.getUser();
@@ -46,19 +51,33 @@ export function AppShell({ children }: AppShellProps) {
                     setProfile(profileData);
                 }
 
-                try {
-                    const matrixClient = await getMatrixClient();
-                    if (matrixClient) {
-                        await safeStartClient(matrixClient);
+                // Health check before starting Matrix client
+                const healthy = await checkServerHealth();
+                setServerOffline(!healthy);
+
+                if (healthy) {
+                    try {
+                        const matrixClient = await getMatrixClient();
+                        if (matrixClient) {
+                            await safeStartClient(matrixClient);
+                        }
+                    } catch (err) {
+                        console.error("Matrix Provider Sync Error:", err);
                     }
-                } catch (err) {
-                    console.error("Matrix Provider Sync Error:", err);
                 }
             }
             setLoadingAuth(false);
         };
 
         fetchUserAndProfile();
+
+        // Periodic health polling (every 30s)
+        const healthInterval = setInterval(async () => {
+            const offline = getServerStatus();
+            setServerOffline(offline);
+        }, 30000);
+
+        return () => clearInterval(healthInterval);
     }, [supabase]);
 
     const handleLogout = async () => {
@@ -68,10 +87,86 @@ export function AppShell({ children }: AppShellProps) {
         router.refresh();
     };
 
+    const handleRetry = async () => {
+        setRetrying(true);
+        try {
+            // If user provided a new tunnel URL, apply it
+            if (newTunnelUrl.trim()) {
+                setBaseUrl(newTunnelUrl.trim());
+                setNewTunnelUrl('');
+                setShowUrlInput(false);
+            }
+
+            const healthy = await checkServerHealth();
+            setServerOffline(!healthy);
+
+            if (healthy) {
+                const matrixClient = await getMatrixClient();
+                if (matrixClient) {
+                    await safeStartClient(matrixClient);
+                }
+            }
+        } catch (err) {
+            console.error("Retry failed:", err);
+        } finally {
+            setRetrying(false);
+        }
+    };
+
     const profileHref = profile?.username ? `/${profile.username}` : user?.email ? `/${user.email.split('@')[0]}` : '#';
 
     return (
         <div className="min-h-screen bg-black text-white flex justify-center">
+
+            {/* ─── Server Offline Overlay ─── */}
+            {serverOffline && (
+                <div className="fixed inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-neutral-900 border border-neutral-700 rounded-2xl p-6 max-w-md w-full text-center space-y-4">
+                        <WifiOff className="w-12 h-12 text-red-400 mx-auto" />
+                        <h2 className="text-xl font-bold text-white">Servidor no disponible</h2>
+                        <p className="text-neutral-400 text-sm">
+                            Conexión perdida con el servidor de Matrix. Verifica si tu túnel de Cloudflare sigue activo.
+                        </p>
+                        <p className="text-neutral-600 text-xs font-mono truncate">
+                            {getEffectiveBaseUrl() || 'No URL configured'}
+                        </p>
+
+                        <button
+                            onClick={handleRetry}
+                            disabled={retrying}
+                            className="w-full py-3 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors"
+                        >
+                            {retrying ? (
+                                <><Loader2 className="w-4 h-4 animate-spin" /> Verificando...</>
+                            ) : (
+                                <><RefreshCcw className="w-4 h-4" /> Reintentar conexión</>
+                            )}
+                        </button>
+
+                        {!showUrlInput ? (
+                            <button
+                                onClick={() => setShowUrlInput(true)}
+                                className="text-neutral-500 text-xs hover:text-neutral-300 underline transition-colors"
+                            >
+                                ¿Nuevo túnel? Cambiar URL
+                            </button>
+                        ) : (
+                            <div className="space-y-2">
+                                <input
+                                    type="url"
+                                    placeholder="https://new-tunnel.trycloudflare.com"
+                                    value={newTunnelUrl}
+                                    onChange={e => setNewTunnelUrl(e.target.value)}
+                                    className="w-full bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                                <p className="text-neutral-600 text-xs">
+                                    Ingresa la nueva URL del túnel y presiona Reintentar.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
             <div className="w-full max-w-7xl flex relative">
                 {/* Left Sidebar - Hidden on mobile (<lg), icon-only on lg, expanded on xl */}
                 <aside className="hidden lg:flex flex-col w-20 xl:w-72 fixed h-screen z-20 border-r border-neutral-800 px-2 py-4 gap-6">
