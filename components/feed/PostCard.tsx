@@ -10,6 +10,7 @@ import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
 import { ComposePostModal } from '@/components/feed/ComposePostModal';
 import { LockedContentOverlay } from '@/components/feed/LockedContentOverlay';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { MatrixMedia } from '@/components/feed/MatrixMedia';
 import { getMediaUrl } from '@/lib/media';
 
 interface PostCardProps {
@@ -39,7 +40,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const [isDeleted, setIsDeleted] = useState<boolean>(false);
     const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
     const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
-    const [imageBroken, setImageBroken] = useState<boolean>(false);
+    const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
     const content = event.getContent() || {};
     const senderId = event.getSender() || '';
@@ -81,16 +82,11 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const avatarUrl = profile?.avatar_url || null;
 
 
-    let imageUrl: string | null = null;
+    // Media detection
     const isImageMsg = content.msgtype === 'm.image';
-    // Permissive check: if it has a URL and looks like an image file
     const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/);
+    const hasImage = !!(isImageMsg || isImageFile) && !!content.url;
 
-    if ((isImageMsg || isImageFile) && !imageBroken) {
-        imageUrl = getMediaUrl(content.url);
-    }
-
-    // Video support
     const isVideoMsg = content.msgtype === 'm.video';
     const videoUrl = isVideoMsg ? getMediaUrl(content.url) : null;
 
@@ -346,17 +342,17 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         </div>
                     )}
 
-                    {/* Text Content — always render if body is meaningful (not just a filename) */}
-                    {!isRepost && body && (() => {
+                    {/* Text Content — suppress if msgtype is m.image or m.video (would just show filename) */}
+                    {!isRepost && body && !isImageMsg && !isVideoMsg && (() => {
                         // Hide body if it's just a raw filename (e.g., "image_2024.jpg")
-                        const isJustFilename = imageUrl && /^\S+\.(jpeg|jpg|gif|png|webp|mp4|webm)$/i.test(body.trim());
+                        const isJustFilename = /^\S+\.(jpeg|jpg|gif|png|webp|mp4|webm|mov)$/i.test(body.trim());
                         if (isJustFilename) return null;
                         return (
                             <div className="relative mb-2">
                                 <div className={`text-neutral-200 whitespace-pre-wrap break-words text-[15px] leading-normal transition-all duration-300 ${isLocked ? 'blur-md opacity-40 select-none' : ''}`}>
                                     {renderBodyWithHashtags(body)}
                                 </div>
-                                {isLocked && !imageUrl && (
+                                {isLocked && !hasImage && (
                                     <LockedContentOverlay
                                         accessLevel={accessLevel}
                                         price={price}
@@ -367,20 +363,18 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         );
                     })()}
 
-                    {/* Image Attachment */}
-                    {!isRepost && imageUrl && (
+                    {/* Image Attachment — authenticated blob fetch */}
+                    {!isRepost && hasImage && (
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
                             <div
                                 className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
                                 onClick={(e) => { e.stopPropagation(); if (!isLocked) setLightboxOpen(true); }}
                             >
-                                <img
-                                    src={imageUrl}
+                                <MatrixMedia
+                                    mxcUrl={content.url}
                                     alt={body || 'Post image'}
-                                    className={`w-full h-auto object-cover max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
-                                    style={{ aspectRatio: 'auto' }}
-                                    loading="lazy"
-                                    onError={() => setImageBroken(true)}
+                                    className={`w-full h-auto object-contain max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
+                                    onBlobReady={(url) => setBlobUrl(url)}
                                 />
                             </div>
                             {isLocked && (
@@ -506,9 +500,9 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 isDeleting={isDeleting}
             />
 
-            {imageUrl && (
+            {blobUrl && (
                 <ImageLightbox
-                    src={imageUrl}
+                    src={blobUrl}
                     alt={body || 'Post image'}
                     open={lightboxOpen}
                     onClose={() => setLightboxOpen(false)}
