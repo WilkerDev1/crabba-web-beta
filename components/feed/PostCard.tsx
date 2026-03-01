@@ -206,6 +206,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     };
 
     const handleLike = async () => {
+        if (!matrixClient) {
+            alert('Únete a la Beta cerrada para interactuar con este arte.');
+            return;
+        }
         if (!matrixClient || isLiking) return;
         setIsLiking(true);
         const likeRoomId = event.getRoomId();
@@ -235,6 +239,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     };
 
     const handleRepost = async () => {
+        if (!matrixClient) {
+            alert('Únete a la Beta cerrada para interactuar con este arte.');
+            return;
+        }
         if (!matrixClient || isReposting) return;
         setIsReposting(true);
         try {
@@ -367,7 +375,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
                     {/* Image Attachment — authenticated blob fetch */}
                     {!isRepost && hasImage && (
-                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[450px]">
+                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[75vh]">
                             <div
                                 className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
                                 onClick={(e) => { e.stopPropagation(); if (!isLocked && !showWarningOverlay) setLightboxOpen(true); }}
@@ -375,7 +383,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 <MatrixMedia
                                     mxcUrl={content.url}
                                     alt={body || 'Post image'}
-                                    className={`w-full h-full object-cover object-center max-h-[450px] transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
+                                    className={`w-full h-full object-cover object-center max-h-[75vh] transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
                                     onBlobReady={(url) => setBlobUrl(url)}
                                 />
                             </div>
@@ -458,11 +466,21 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     {!isNested && (
                         <div className="flex justify-between text-neutral-500 max-w-md mt-3">
                             {isDetailView ? (
-                                <ComposePostModal replyToEventId={targetEventId} defaultRoomId={roomId} onPostCreated={() => { }}>
-                                    <div onClick={e => e.stopPropagation()}>
-                                        <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-orange-500" bg="group-hover:bg-orange-500/10" />
-                                    </div>
-                                </ComposePostModal>
+                                matrixClient ? (
+                                    <ComposePostModal replyToEventId={targetEventId} defaultRoomId={roomId} onPostCreated={() => { }}>
+                                        <div onClick={e => e.stopPropagation()}>
+                                            <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-orange-500" bg="group-hover:bg-orange-500/10" />
+                                        </div>
+                                    </ComposePostModal>
+                                ) : (
+                                    <ActionIcon
+                                        icon={<MessageSquare className="w-4 h-4" />}
+                                        count={replyCount}
+                                        color="group-hover:text-orange-500"
+                                        bg="group-hover:bg-orange-500/10"
+                                        onClick={() => alert('Únete a la Beta cerrada para interactuar con este arte.')}
+                                    />
+                                )
                             ) : (
                                 <ActionIcon
                                     icon={<MessageSquare className="w-4 h-4" />}

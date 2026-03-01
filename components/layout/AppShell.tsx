@@ -188,16 +188,33 @@ export function AppShell({ children }: AppShellProps) {
                     </nav>
 
                     <div className="p-2">
-                        <ComposePostModal>
-                            <Button className="w-full h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-bold text-lg hidden xl:block">
-                                Post
-                            </Button>
-                        </ComposePostModal>
-                        <ComposePostModal>
-                            <Button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center xl:hidden mx-auto">
-                                +
-                            </Button>
-                        </ComposePostModal>
+                        {user ? (
+                            <>
+                                <ComposePostModal>
+                                    <Button className="w-full h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-bold text-lg hidden xl:block">
+                                        Post
+                                    </Button>
+                                </ComposePostModal>
+                                <ComposePostModal>
+                                    <Button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center xl:hidden mx-auto">
+                                        +
+                                    </Button>
+                                </ComposePostModal>
+                            </>
+                        ) : (
+                            <>
+                                <Link href="/">
+                                    <Button className="w-full h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-bold text-lg hidden xl:block">
+                                        Join Beta
+                                    </Button>
+                                </Link>
+                                <Link href="/">
+                                    <Button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center xl:hidden mx-auto text-xs font-bold">
+                                        🦀
+                                    </Button>
+                                </Link>
+                            </>
+                        )}
                     </div>
 
                     {!loadingAuth && user && (
@@ -244,10 +261,10 @@ export function AppShell({ children }: AppShellProps) {
 
                     <TrendingTopics />
                 </aside>
-            </div>
+            </div >
 
             {/* ─── Mobile Bottom Navigation Bar ─── */}
-            <nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-md border-t border-neutral-800 flex items-center justify-around py-2 px-2 lg:hidden safe-area-bottom">
+            < nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-md border-t border-neutral-800 flex items-center justify-around py-2 px-2 lg:hidden safe-area-bottom" >
                 <MobileNavItem href="/" icon={<Home className="w-6 h-6" />} active={pathname === '/'} />
                 <MobileNavItem href="/search" icon={<Search className="w-6 h-6" />} active={pathname === '/search'} />
 
@@ -260,8 +277,8 @@ export function AppShell({ children }: AppShellProps) {
 
                 <MobileNavItem href="/notifications" icon={<Bell className="w-6 h-6" />} active={pathname === '/notifications'} />
                 <MobileNavItem href={profileHref} icon={<User className="w-6 h-6" />} active={pathname === profileHref} />
-            </nav>
-        </div>
+            </nav >
+        </div >
     );
 }
 
