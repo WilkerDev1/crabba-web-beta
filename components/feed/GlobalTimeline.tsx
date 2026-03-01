@@ -79,135 +79,204 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
             setClient(matrixClient);
 
-            // Instant Cache Access - Always check room FIRST
-            let room = matrixClient.getRoom(ROOM_ID);
+            // Detect guest mode (tokenless client)
+            const isGuest = !matrixClient.getAccessToken();
 
-            // Wait until client is prepared ONLY if room is NOT cached
-            if (!room && matrixClient.getSyncState() !== 'PREPARED') {
-                setLoadingMessage("Sincronizando con la red Matrix...");
+            if (isGuest) {
+                // ─── GUEST MODE: Direct HTTP fetch from public room ───
+                console.log('[GlobalTimeline] Guest mode: fetching public room messages via HTTP...');
+                try {
+                    const baseUrl = matrixClient.getHomeserverUrl();
+                    const url = `${baseUrl}/_matrix/client/v3/rooms/${encodeURIComponent(ROOM_ID)}/messages?dir=b&limit=50`;
+                    const res = await fetch(url);
+                    if (!res.ok) throw new Error(`Public room fetch failed: ${res.status}`);
+                    const data = await res.json();
 
-                await new Promise<void>((resolve) => {
-                    let retries = 0;
+                    // Convert raw JSON events into a shape compatible with our PostCard
+                    const rawEvents = (data.chunk || []).filter((ev: any) => {
+                        if (ev.type !== 'm.room.message') return false;
+                        const content = ev.content || {};
 
-                    const checkSync = () => {
-                        if (matrixClient.getRoom(ROOM_ID) || matrixClient.getSyncState() === 'PREPARED') {
-                            cleanup();
-                            resolve();
-                            return true;
+                        if (filterUserId && ev.sender !== filterUserId) return false;
+
+                        if (filterType === 'media') {
+                            const isImageOrVideo = content.msgtype === 'm.image' || content.msgtype === 'm.video';
+                            if (!isImageOrVideo) return false;
                         }
-                        return false;
-                    };
 
-                    const syncListener = (state: string) => {
-                        if (state === 'PREPARED') {
-                            checkSync();
-                        }
-                    };
-
-                    const pollInterval = setInterval(() => {
-                        if (!checkSync()) {
-                            retries++;
-                            // Simple Watchdog: Stop waiting after 20 seconds, DO NOT restart client
-                            if (retries >= 40) {
-                                console.warn("Sync loop max wait reached. Aborting wait.");
-                                cleanup();
-                                resolve();
+                        if (rootOnly) {
+                            const relatesTo = content['m.relates_to'];
+                            if (relatesTo) {
+                                const isRepost = relatesTo.rel_type === 'm.reference';
+                                const isThreadReply = relatesTo.rel_type === 'm.thread';
+                                const isInReplyTo = !!relatesTo['m.in_reply_to'];
+                                if (!isRepost && (isThreadReply || isInReplyTo)) return false;
                             }
                         }
-                    }, 500);
 
-                    const cleanup = () => {
-                        clearInterval(pollInterval);
-                        matrixClient.removeListener("sync" as any, syncListener);
-                    };
-
-                    matrixClient.on("sync" as any, syncListener);
-                    checkSync();
-                });
-
-                setLoadingMessage(null);
-            }
-
-            // Re-fetch room after potential wait
-            room = matrixClient.getRoom(ROOM_ID);
-
-            // If room still isn't in cache, attempt joinRoom
-            if (!room && ROOM_ID) {
-                console.log(`[GlobalTimeline] Room not in cache, attempting to join: ${ROOM_ID}`);
-                try {
-                    await matrixClient.joinRoom(ROOM_ID);
-                    room = matrixClient.getRoom(ROOM_ID);
-                } catch (joinError: any) {
-                    const errCode = joinError?.data?.errcode || joinError?.errcode || '';
-                    const errMsg = joinError?.data?.error || joinError?.message || String(joinError);
-                    console.error(`[GlobalTimeline] Failed to join room:`, errCode, errMsg);
-                    setRoomError(`${errCode ? errCode + ': ' : ''}${errMsg}`);
-                    setLoading(false);
-                    setLoadingMessage(null);
-                    return; // BREAK — do not fall through to "Room not found"
-                }
-            }
-
-            if (room) {
-                // Room already synced
-                const timeline = room.getLiveTimeline();
-                const events = timeline.getEvents().slice(-100).reverse(); // Fetch more to allow filtering
-                const messageEvents = events.filter((e: any) => {
-                    if (e.isRedacted() || e.getType() === 'm.room.redaction') return false;
-
-                    const isMsg = e.getType() === 'm.room.message';
-                    if (!isMsg) return false;
-
-                    if (filterUserId && e.getSender() !== filterUserId) return false;
-
-                    const content = e.getContent();
-
-                    if (filterType === 'media') {
-                        const isImageOrVideo = content.msgtype === 'm.image' || content.msgtype === 'm.video';
-                        const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp|mp4|webm)$/);
-                        if (!isImageOrVideo && !isImageFile) return false;
-                    }
-
-                    // ROOT-ONLY FILTER: Hide threaded replies from home feed.
-                    if (rootOnly) {
-                        const relatesTo = content['m.relates_to'];
-                        if (relatesTo) {
-                            const isRepost = relatesTo.rel_type === 'm.reference';
-                            const isThreadReply = relatesTo.rel_type === 'm.thread';
-                            const isInReplyTo = !!relatesTo['m.in_reply_to'];
-                            if (!isRepost && (isThreadReply || isInReplyTo)) return false;
+                        if (filterHashtag) {
+                            const body = content.body || '';
+                            if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
                         }
-                    }
 
-                    if (filterType === 'replies') {
-                        const hasRelatesTo = content['m.relates_to'];
-                        if (!hasRelatesTo) return false;
-                    }
+                        if (searchQuery) {
+                            const body = content.body || '';
+                            if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+                        }
 
-                    if (filterThreadId) {
-                        const relatesTo = content['m.relates_to'];
-                        if (!relatesTo) return false;
-                        const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
-                        const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
-                        if (!isThreadMember && !isDirectReply) return false;
-                    }
+                        return true;
+                    });
 
-                    if (searchQuery) {
-                        const body = content.body || '';
-                        if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-                    }
+                    // Wrap raw events in a lightweight adapter that PostCard can consume
+                    const wrappedEvents = rawEvents.map((ev: any) => ({
+                        getId: () => ev.event_id,
+                        getType: () => ev.type,
+                        getSender: () => ev.sender,
+                        getContent: () => ev.content || {},
+                        getTs: () => ev.origin_server_ts || 0,
+                        getRoomId: () => ev.room_id || ROOM_ID,
+                        isRedacted: () => false,
+                        getDate: () => new Date(ev.origin_server_ts || 0),
+                        event: ev,
+                        status: null,
+                    }));
 
-                    if (filterHashtag) {
-                        const body = content.body || '';
-                        if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
-                    }
-
-                    return true;
-                });
-                setEvents(messageEvents);
+                    setEvents(wrappedEvents);
+                    setHasMore(false); // Guests get one page
+                } catch (guestErr) {
+                    console.error('[GlobalTimeline] Guest fetch error:', guestErr);
+                    setError('Could not load public timeline. The room may not be world-readable.');
+                }
             } else {
-                // Room truly not found after sync + join attempt
-                setRoomError(`Room ${ROOM_ID} not found. Verify NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID is correct.`);
+                // ─── AUTHENTICATED MODE: Use SDK sync + room timeline ───
+
+                // Instant Cache Access - Always check room FIRST
+                let room = matrixClient.getRoom(ROOM_ID);
+
+                // Wait until client is prepared ONLY if room is NOT cached
+                if (!room && matrixClient.getSyncState() !== 'PREPARED') {
+                    setLoadingMessage("Sincronizando con la red Matrix...");
+
+                    await new Promise<void>((resolve) => {
+                        let retries = 0;
+
+                        const checkSync = () => {
+                            if (matrixClient.getRoom(ROOM_ID) || matrixClient.getSyncState() === 'PREPARED') {
+                                cleanup();
+                                resolve();
+                                return true;
+                            }
+                            return false;
+                        };
+
+                        const syncListener = (state: string) => {
+                            if (state === 'PREPARED') {
+                                checkSync();
+                            }
+                        };
+
+                        const pollInterval = setInterval(() => {
+                            if (!checkSync()) {
+                                retries++;
+                                if (retries >= 40) {
+                                    console.warn("Sync loop max wait reached. Aborting wait.");
+                                    cleanup();
+                                    resolve();
+                                }
+                            }
+                        }, 500);
+
+                        const cleanup = () => {
+                            clearInterval(pollInterval);
+                            matrixClient.removeListener("sync" as any, syncListener);
+                        };
+
+                        matrixClient.on("sync" as any, syncListener);
+                        checkSync();
+                    });
+
+                    setLoadingMessage(null);
+                }
+
+                // Re-fetch room after potential wait
+                room = matrixClient.getRoom(ROOM_ID);
+
+                // If room still isn't in cache, attempt joinRoom (authenticated only)
+                if (!room && ROOM_ID) {
+                    console.log(`[GlobalTimeline] Room not in cache, attempting to join: ${ROOM_ID}`);
+                    try {
+                        await matrixClient.joinRoom(ROOM_ID);
+                        room = matrixClient.getRoom(ROOM_ID);
+                    } catch (joinError: any) {
+                        const errCode = joinError?.data?.errcode || joinError?.errcode || '';
+                        const errMsg = joinError?.data?.error || joinError?.message || String(joinError);
+                        console.error(`[GlobalTimeline] Failed to join room:`, errCode, errMsg);
+                        setRoomError(`${errCode ? errCode + ': ' : ''}${errMsg}`);
+                        setLoading(false);
+                        setLoadingMessage(null);
+                        return;
+                    }
+                }
+
+                if (room) {
+                    // Room already synced
+                    const timeline = room.getLiveTimeline();
+                    const events = timeline.getEvents().slice(-100).reverse();
+                    const messageEvents = events.filter((e: any) => {
+                        if (e.isRedacted() || e.getType() === 'm.room.redaction') return false;
+
+                        const isMsg = e.getType() === 'm.room.message';
+                        if (!isMsg) return false;
+
+                        if (filterUserId && e.getSender() !== filterUserId) return false;
+
+                        const content = e.getContent();
+
+                        if (filterType === 'media') {
+                            const isImageOrVideo = content.msgtype === 'm.image' || content.msgtype === 'm.video';
+                            const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp|mp4|webm)$/);
+                            if (!isImageOrVideo && !isImageFile) return false;
+                        }
+
+                        if (rootOnly) {
+                            const relatesTo = content['m.relates_to'];
+                            if (relatesTo) {
+                                const isRepost = relatesTo.rel_type === 'm.reference';
+                                const isThreadReply = relatesTo.rel_type === 'm.thread';
+                                const isInReplyTo = !!relatesTo['m.in_reply_to'];
+                                if (!isRepost && (isThreadReply || isInReplyTo)) return false;
+                            }
+                        }
+
+                        if (filterType === 'replies') {
+                            const hasRelatesTo = content['m.relates_to'];
+                            if (!hasRelatesTo) return false;
+                        }
+
+                        if (filterThreadId) {
+                            const relatesTo = content['m.relates_to'];
+                            if (!relatesTo) return false;
+                            const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
+                            const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+                            if (!isThreadMember && !isDirectReply) return false;
+                        }
+
+                        if (searchQuery) {
+                            const body = content.body || '';
+                            if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+                        }
+
+                        if (filterHashtag) {
+                            const body = content.body || '';
+                            if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
+                        }
+
+                        return true;
+                    });
+                    setEvents(messageEvents);
+                } else {
+                    setRoomError(`Room ${ROOM_ID} not found. Verify NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID is correct.`);
+                }
             }
 
         } catch (err: any) {
@@ -371,6 +440,14 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     const loadMore = useCallback(async () => {
         if (!client || !hasMore || loadingMore) return;
+
+        // Guests get a single page — no scrollback
+        const token = client.getAccessToken?.();
+        if (!token) {
+            setHasMore(false);
+            return;
+        }
+
         setLoadingMore(true);
 
         try {
