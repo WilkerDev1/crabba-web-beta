@@ -102,30 +102,41 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
         : `View this post by ${displayName} on Crabba.`;
 
     // Build image URL from mxc://
-    let imageUrl: string | undefined;
+    let imageUrl: string | null = null;
     if ((msgtype === 'm.image' || msgtype === 'm.video') && mxcUrl) {
-        imageUrl = mxcToHttp(mxcUrl);
+        const converted = mxcToHttp(mxcUrl);
+        if (converted) imageUrl = converted;
     }
     // Also check for info.thumbnail_url
     if (!imageUrl && content.info?.thumbnail_url) {
-        imageUrl = mxcToHttp(content.info.thumbnail_url);
+        const converted = mxcToHttp(content.info.thumbnail_url);
+        if (converted) imageUrl = converted;
     }
+
+    const ogTitle = `Post de ${displayName} en Crabba`;
 
     return {
         title,
         description,
         openGraph: {
-            title,
+            title: ogTitle,
             description,
             siteName,
             type: 'article',
-            ...(imageUrl ? { images: [{ url: imageUrl, width: 1200, height: 630 }] } : {}),
+            images: imageUrl ? [
+                {
+                    url: imageUrl,
+                    width: 1200,
+                    height: 630,
+                    alt: 'Post image',
+                },
+            ] : [],
         },
         twitter: {
-            card: imageUrl ? 'summary_large_image' : 'summary',
-            title,
+            card: 'summary_large_image',
+            title: ogTitle,
             description,
-            ...(imageUrl ? { images: [imageUrl] } : {}),
+            images: imageUrl ? [imageUrl] : [],
         },
     };
 }
