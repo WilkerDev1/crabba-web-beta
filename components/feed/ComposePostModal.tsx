@@ -34,6 +34,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
     const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
     const [mediaPreview, setMediaPreview] = useState<string | null>(null);
     const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
+    const [isDragging, setIsDragging] = useState(false);
     const [accessLevel, setAccessLevel] = useState<string>('public');
     const [price, setPrice] = useState<string>('');
     const [collectionId, setCollectionId] = useState<string>('none');
@@ -56,11 +57,17 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         fetchUser();
     }, []);
 
-    const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+    /** Core file handler — used by both <input> and drag-and-drop */
+    const handleFile = async (file: File) => {
+        if (selectedMedia) return; // Already have media selected
 
         const isVideo = file.type.startsWith('video/');
+        const isImage = file.type.startsWith('image/');
+
+        if (!isVideo && !isImage) {
+            alert('Formato no soportado. Usa imágenes o videos.');
+            return;
+        }
 
         if (isVideo) {
             // Pre-upload validation: check video duration
@@ -68,13 +75,11 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                 const duration = await getVideoDuration(file);
                 if (duration > 180) {
                     alert('Video excede el límite de 3 minutos para cuidar el servidor.');
-                    if (fileInputRef.current) fileInputRef.current.value = '';
                     return;
                 }
             } catch (err) {
                 console.error('Could not read video duration:', err);
                 alert('No se pudo leer el video. Intenta con otro archivo.');
-                if (fileInputRef.current) fileInputRef.current.value = '';
                 return;
             }
             setMediaType('video');
@@ -83,10 +88,19 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         }
 
         setSelectedMedia(file);
+        setMediaPreview(URL.createObjectURL(file));
+    };
 
-        // Create preview
-        const objectUrl = URL.createObjectURL(file);
-        setMediaPreview(objectUrl);
+    const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) await handleFile(file);
+    };
+
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files?.[0];
+        if (file) await handleFile(file);
     };
 
     /** Use HTMLVideoElement to read duration without uploading */
@@ -295,7 +309,12 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
             <DialogTrigger asChild>
                 {children}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px] bg-neutral-950 border-neutral-800 text-white p-0 overflow-hidden">
+            <DialogContent
+                className={`sm:max-w-[600px] bg-neutral-950 border-neutral-800 text-white p-0 overflow-hidden transition-colors ${isDragging ? 'ring-2 ring-blue-500 ring-dashed' : ''}`}
+                onDragOver={(e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+            >
                 <DialogHeader className="p-4 border-b border-neutral-800">
                     <DialogTitle className="text-xl font-bold">Compose Post</DialogTitle>
                 </DialogHeader>
@@ -314,27 +333,26 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                             onChange={(e) => setContent(e.target.value)}
                         />
 
-                        {mediaPreview && mediaType === 'image' && (
+                        {mediaPreview && (
                             <div className="relative rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 group">
-                                <img src={mediaPreview} alt="Preview" className="w-full max-h-[300px] object-cover" />
-                                <button
-                                    onClick={removeMedia}
-                                    className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white backdrop-blur-sm transition-colors"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
-                            </div>
-                        )}
-
-                        {mediaPreview && mediaType === 'video' && (
-                            <div className="relative rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 group">
-                                <video src={mediaPreview} className="w-full max-h-[300px] rounded-xl" controls preload="metadata" />
+                                {mediaType === 'video' ? (
+                                    <video src={mediaPreview} className="w-full max-h-[350px] object-contain rounded-xl" controls preload="metadata" />
+                                ) : (
+                                    <img src={mediaPreview} alt="Preview" className="w-full max-h-[350px] object-contain rounded-xl" />
+                                )}
                                 <button
                                     onClick={removeMedia}
                                     className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white backdrop-blur-sm transition-colors z-10"
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
+                            </div>
+                        )}
+
+                        {/* Drag-and-drop hint */}
+                        {isDragging && !mediaPreview && (
+                            <div className="flex items-center justify-center h-32 border-2 border-dashed border-blue-500 rounded-xl bg-blue-500/10 text-blue-400 text-sm font-medium">
+                                Suelta tu archivo aquí
                             </div>
                         )}
 
@@ -361,7 +379,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                                 type="file"
                                 ref={fileInputRef}
                                 className="hidden"
-                                accept="image/*,video/mp4,video/quicktime"
+                                accept="image/*,video/*,.mp4,.mov,.webm,.mkv"
                                 onChange={handleMediaSelect}
                             />
                             <Button
