@@ -329,8 +329,8 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                             key={tag}
                             onClick={() => handlePillClick(tag)}
                             className={`shrink-0 px-3 py-1 rounded-full text-sm font-medium transition-colors ${activeFilter === tag
-                                    ? 'bg-orange-600 text-white'
-                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                                ? 'bg-orange-600 text-white'
+                                : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
                                 }`}
                         >
                             #{tag}
@@ -360,8 +360,8 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                         <TabsTrigger value="media" className={tabTriggerClass}>
                             Media
                         </TabsTrigger>
-                        <TabsTrigger value="carpetas" className={tabTriggerClass}>
-                            Carpetas
+                        <TabsTrigger value="collections" className={tabTriggerClass}>
+                            Collections
                         </TabsTrigger>
                         <TabsTrigger
                             value="bostcrabb"
@@ -397,7 +397,7 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                     </TabsContent>
 
                     {/* Tab: Carpetas (Smart Media Folders) */}
-                    <TabsContent value="carpetas" className="p-0 m-0">
+                    <TabsContent value="collections" className="p-0 m-0">
                         {smartFolders.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
                                 <FolderOpen className="w-16 h-16 text-neutral-600 mb-6" />

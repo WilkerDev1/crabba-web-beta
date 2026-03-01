@@ -225,7 +225,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     useEffect(() => {
         fetchMessages();
-    }, [refreshTrigger]);
+    }, [refreshTrigger, filterHashtag]);
 
     // ─── Real-Time Event Listener ───
     useEffect(() => {
