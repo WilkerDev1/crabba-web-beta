@@ -58,7 +58,7 @@ export function AppShell({ children }: AppShellProps) {
                 if (healthy) {
                     try {
                         const matrixClient = await getMatrixClient();
-                        if (matrixClient) {
+                        if (matrixClient && matrixClient.getAccessToken()) {
                             await safeStartClient(matrixClient);
                         }
                     } catch (err) {

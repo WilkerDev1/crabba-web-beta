@@ -155,32 +155,37 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
             } else {
                 console.log('🆕 No Matrix session found in LocalStorage, fetching from Identity Bridge...');
 
-                // Fetch dynamic credentials from our Next.js API route
-                const res = await fetch('/api/auth/matrix-token');
+                try {
+                    // Fetch dynamic credentials from our Next.js API route
+                    const res = await fetch('/api/auth/matrix-token');
 
-                if (!res.ok) {
-                    const errorText = await res.text();
-                    console.error('Matrix Auth Error:', errorText);
-                    // Handle graceful reject
-                    globalForMatrix.loginPromise = null;
-                    return null as any as MatrixClient; // Will safely cast to null
-                }
+                    if (!res.ok) {
+                        throw new Error(`Token fetch failed: ${res.status}`);
+                    }
 
-                const data = await res.json();
+                    const data = await res.json();
 
-                client = createClient({
-                    baseUrl: getEffectiveBaseUrl(),
-                    accessToken: data.access_token,
-                    userId: data.user_id,
-                    deviceId: data.device_id,
-                    fetchFn: customFetchFn,
-                });
+                    client = createClient({
+                        baseUrl: getEffectiveBaseUrl(),
+                        accessToken: data.access_token,
+                        userId: data.user_id,
+                        deviceId: data.device_id,
+                        fetchFn: customFetchFn,
+                    });
 
-                if (typeof window !== 'undefined') {
-                    console.log('💾 Saving dynamic Matrix session to LocalStorage');
-                    localStorage.setItem('matrix_access_token', data.access_token);
-                    localStorage.setItem('matrix_user_id', data.user_id);
-                    localStorage.setItem('matrix_device_id', data.device_id);
+                    if (typeof window !== 'undefined') {
+                        console.log('💾 Saving dynamic Matrix session to LocalStorage');
+                        localStorage.setItem('matrix_access_token', data.access_token);
+                        localStorage.setItem('matrix_user_id', data.user_id);
+                        localStorage.setItem('matrix_device_id', data.device_id);
+                    }
+                } catch (authErr) {
+                    // ─── GUEST FALLBACK: create a tokenless client for read-only browsing ───
+                    console.warn('👀 Guest mode: creating tokenless Matrix client for read-only browsing.', authErr);
+                    client = createClient({
+                        baseUrl: getEffectiveBaseUrl(),
+                        fetchFn: customFetchFn,
+                    });
                 }
             }
 
@@ -242,10 +247,18 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
             // instead of re-entering the init flow (which causes 429 loops).
             return client;
         } catch (error) {
-            console.error('❌ Failed to initialize Matrix client:', error);
-            // Only clear on failure so the next call can retry
-            globalForMatrix.loginPromise = null;
-            throw error;
+            console.error('⚠️ Matrix client init error, attempting guest fallback:', error);
+            try {
+                const { createClient } = await import('matrix-js-sdk');
+                const guestClient = createClient({
+                    baseUrl: getEffectiveBaseUrl(),
+                });
+                globalForMatrix.matrixClient = guestClient;
+                return guestClient;
+            } catch {
+                globalForMatrix.loginPromise = null;
+                return null as any;
+            }
         }
     })();
 
