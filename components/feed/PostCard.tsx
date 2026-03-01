@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDistanceToNow } from 'date-fns';
-import { MessageSquare, Heart, Repeat, Share, Loader2 } from 'lucide-react';
+import { MessageSquare, Heart, Repeat, Share, Loader2, EyeOff } from 'lucide-react';
 import { useMatrixProfile } from '@/hooks/useMatrixProfile';
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -40,6 +40,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
     const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const [isWarningRevealed, setIsWarningRevealed] = useState<boolean>(false);
 
     const content = event.getContent() || {};
     const senderId = event.getSender() || '';
@@ -66,8 +67,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const hasParent = !!inReplyToId;
 
     const accessLevel = content['access_level'] || 'public';
-    const hasWarning = !!content['org.crabba.content_warning'];
-    const isLocked = accessLevel === 'premium' || hasWarning;
+    const warningText = content['org.crabba.content_warning'] || null;
+    const hasWarning = !!warningText;
+    const isLocked = accessLevel === 'premium';
+    const showWarningOverlay = hasWarning && !isWarningRevealed && !isLocked;
     const price = content['price'] as number | undefined;
 
     const [originalEvent, setOriginalEvent] = useState<any>(null);
@@ -344,7 +347,6 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     {/* Text Content — show user captions, hide raw filenames */}
                     {!isRepost && body && (() => {
                         const bodyText = body.trim();
-                        // A string is just a filename if it has NO spaces AND ends with a media extension
                         const isJustFilename = !bodyText.includes(' ') && /\.(jpe?g|png|gif|webp|mp4|mov|webm)$/i.test(bodyText);
                         if (isJustFilename) return null;
                         return (
@@ -368,7 +370,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
                             <div
                                 className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); if (!isLocked) setLightboxOpen(true); }}
+                                onClick={(e) => { e.stopPropagation(); if (!isLocked && !showWarningOverlay) setLightboxOpen(true); }}
                             >
                                 <MatrixMedia
                                     mxcUrl={content.url}
@@ -383,6 +385,19 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                     price={price}
                                     onUnlockClick={() => { alert('Premium subscription flow coming soon!') }}
                                 />
+                            )}
+                            {showWarningOverlay && (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-2xl rounded-2xl p-4 text-center">
+                                    <EyeOff className="w-8 h-8 text-zinc-400 mb-2" />
+                                    <p className="text-zinc-200 font-semibold mb-1">Content Warning</p>
+                                    <p className="text-zinc-400 text-sm mb-4">{warningText}</p>
+                                    <button
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsWarningRevealed(true); }}
+                                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full font-medium transition-colors"
+                                    >
+                                        Reveal
+                                    </button>
+                                </div>
                             )}
                         </div>
                     )}
@@ -402,6 +417,19 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                     price={price}
                                     onUnlockClick={() => { alert('Premium subscription flow coming soon!') }}
                                 />
+                            )}
+                            {showWarningOverlay && (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-zinc-950/80 backdrop-blur-2xl rounded-2xl p-4 text-center">
+                                    <EyeOff className="w-8 h-8 text-zinc-400 mb-2" />
+                                    <p className="text-zinc-200 font-semibold mb-1">Content Warning</p>
+                                    <p className="text-zinc-400 text-sm mb-4">{warningText}</p>
+                                    <button
+                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsWarningRevealed(true); }}
+                                        className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-full font-medium transition-colors"
+                                    >
+                                        Reveal
+                                    </button>
+                                </div>
                             )}
                         </div>
                     )}
