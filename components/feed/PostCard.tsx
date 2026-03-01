@@ -342,10 +342,11 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         </div>
                     )}
 
-                    {/* Text Content — suppress if msgtype is m.image or m.video (would just show filename) */}
-                    {!isRepost && body && !isImageMsg && !isVideoMsg && (() => {
-                        // Hide body if it's just a raw filename (e.g., "image_2024.jpg")
-                        const isJustFilename = /^\S+\.(jpeg|jpg|gif|png|webp|mp4|webm|mov)$/i.test(body.trim());
+                    {/* Text Content — show user captions, hide raw filenames */}
+                    {!isRepost && body && (() => {
+                        const bodyText = body.trim();
+                        // A string is just a filename if it has NO spaces AND ends with a media extension
+                        const isJustFilename = !bodyText.includes(' ') && /\.(jpe?g|png|gif|webp|mp4|mov|webm)$/i.test(bodyText);
                         if (isJustFilename) return null;
                         return (
                             <div className="relative mb-2">
