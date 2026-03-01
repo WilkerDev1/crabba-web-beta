@@ -244,12 +244,26 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                         localStorage.setItem('matrix_device_id', data.device_id);
                     }
                 } catch (authErr) {
-                    // ─── GUEST FALLBACK: create a tokenless client for read-only browsing ───
-                    console.warn('👀 Guest mode: creating tokenless Matrix client for read-only browsing.', authErr);
-                    client = createClient({
-                        baseUrl: getEffectiveBaseUrl(),
-                        fetchFn: customFetchFn,
-                    });
+                    // ─── GUEST FALLBACK: create an authenticated guest client for read-only browsing ───
+                    console.warn('👀 Guest mode: registering guest token for read-only Matrix client.', authErr);
+                    try {
+                        const baseUrl = getEffectiveBaseUrl();
+                        let guestToken = typeof window !== 'undefined' ? sessionStorage.getItem('matrix_guest_token') : null;
+                        if (!guestToken) {
+                            guestToken = await getGuestToken(baseUrl);
+                        }
+                        client = createClient({
+                            baseUrl,
+                            accessToken: guestToken,
+                            fetchFn: customFetchFn,
+                        });
+                    } catch (guestErr) {
+                        console.warn('👀 Guest token registration failed, falling back to tokenless client.', guestErr);
+                        client = createClient({
+                            baseUrl: getEffectiveBaseUrl(),
+                            fetchFn: customFetchFn,
+                        });
+                    }
                 }
             }
 

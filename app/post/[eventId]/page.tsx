@@ -101,16 +101,13 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
         ? body.slice(0, 200)
         : `View this post by ${displayName} on Crabba.`;
 
-    // Build image URL from mxc://
-    let imageUrl: string | null = null;
-    if ((msgtype === 'm.image' || msgtype === 'm.video') && mxcUrl) {
-        const converted = mxcToHttp(mxcUrl);
-        if (converted) imageUrl = converted;
-    }
-    // Also check for info.thumbnail_url
-    if (!imageUrl && content.info?.thumbnail_url) {
-        const converted = mxcToHttp(content.info.thumbnail_url);
-        if (converted) imageUrl = converted;
+    // Build image URL — use the SEO proxy so scrapers can access it
+    let seoImageUrl: string | null = null;
+    const rawMxc = mxcUrl || content.info?.thumbnail_url;
+    if ((msgtype === 'm.image' || msgtype === 'm.video') && rawMxc) {
+        seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(rawMxc)}`;
+    } else if (content.info?.thumbnail_url) {
+        seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(content.info.thumbnail_url)}`;
     }
 
     const ogTitle = `Post de ${displayName} en Crabba`;
@@ -123,9 +120,9 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
             description,
             siteName,
             type: 'article',
-            images: imageUrl ? [
+            images: seoImageUrl ? [
                 {
-                    url: imageUrl,
+                    url: seoImageUrl,
                     width: 1200,
                     height: 630,
                     alt: 'Post image',
@@ -136,7 +133,7 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
             card: 'summary_large_image',
             title: ogTitle,
             description,
-            images: imageUrl ? [imageUrl] : [],
+            images: seoImageUrl ? [seoImageUrl] : [],
         },
     };
 }

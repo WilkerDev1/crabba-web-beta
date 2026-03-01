@@ -12,11 +12,9 @@ interface MatrixMediaProps {
 }
 
 /**
- * Fetches Matrix media securely with the stored access token (MSC3916 compliant)
- * and renders it as an Object URL blob. This bypasses 404s from unauthenticated
- * media endpoints that modern Synapse versions enforce.
- *
- * For guests (no token), falls back to the public unauthenticated media endpoint.
+ * Fetches Matrix media securely using the authenticated V1 endpoint.
+ * Works for both logged-in users (localStorage token) and guests (sessionStorage token).
+ * Falls back to error state if no token is available at all.
  */
 export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobReady, onClick }: MatrixMediaProps) {
     const [imgSrc, setImgSrc] = useState<string | null>(null);
@@ -32,17 +30,16 @@ export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobRea
                 const parts = mxcUrl.replace('mxc://', '').split('/');
                 if (parts.length < 2) throw new Error('Invalid mxc URL format');
 
-                const token = typeof window !== 'undefined' ? localStorage.getItem('matrix_access_token') : null;
+                // Use whichever token is available: user token or guest token
+                const token = typeof window !== 'undefined'
+                    ? (localStorage.getItem('matrix_access_token') || sessionStorage.getItem('matrix_guest_token'))
+                    : null;
 
                 if (!token) {
-                    // ─── GUEST MODE: use public unauthenticated media URL ───
-                    const publicUrl = `https://api.crabba.net/_matrix/media/v3/download/${parts[0]}/${parts[1]}`;
-                    setImgSrc(publicUrl);
-                    onBlobReady?.(publicUrl);
-                    return;
+                    throw new Error('No auth token available for media fetch');
                 }
 
-                // Authenticated mode: use the modern V1 authenticated endpoint + blob
+                // Always use the authenticated V1 media download endpoint
                 const url = `https://api.crabba.net/_matrix/client/v1/media/download/${parts[0]}/${parts[1]}`;
 
                 const response = await fetch(url, {
@@ -58,15 +55,7 @@ export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobRea
                 onBlobReady?.(blobUrl);
             } catch (err) {
                 console.error("Failed to load Matrix media:", err);
-                // Last-resort fallback: try the public endpoint
-                try {
-                    const parts = mxcUrl.replace('mxc://', '').split('/');
-                    const fallbackUrl = `https://api.crabba.net/_matrix/media/v3/download/${parts[0]}/${parts[1]}`;
-                    setImgSrc(fallbackUrl);
-                    onBlobReady?.(fallbackUrl);
-                } catch {
-                    setError(true);
-                }
+                setError(true);
             }
         };
 
