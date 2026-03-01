@@ -9,6 +9,8 @@ import { Trash2 } from 'lucide-react';
 import { ConfirmDeleteModal } from '@/components/ui/ConfirmDeleteModal';
 import { ComposePostModal } from '@/components/feed/ComposePostModal';
 import { LockedContentOverlay } from '@/components/feed/LockedContentOverlay';
+import { ImageLightbox } from '@/components/ui/ImageLightbox';
+import { getMediaUrl } from '@/lib/media';
 
 interface PostCardProps {
     event: any; // Using any for Matrix Event temporarily, strictly should be MatrixEvent
@@ -36,6 +38,8 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
     const [isDeleted, setIsDeleted] = useState<boolean>(false);
     const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+    const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
+    const [imageBroken, setImageBroken] = useState<boolean>(false);
 
     const content = event.getContent() || {};
     const senderId = event.getSender() || '';
@@ -77,15 +81,18 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const avatarUrl = profile?.avatar_url || null;
 
 
-    let imageUrl = null;
+    let imageUrl: string | null = null;
     const isImageMsg = content.msgtype === 'm.image';
     // Permissive check: if it has a URL and looks like an image file
     const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/);
 
-    if (isImageMsg || isImageFile) {
-        // Convert mxc:// to http via client
-        imageUrl = matrixClient.mxcUrlToHttp(content.url);
+    if ((isImageMsg || isImageFile) && !imageBroken) {
+        imageUrl = getMediaUrl(content.url);
     }
+
+    // Video support
+    const isVideoMsg = content.msgtype === 'm.video';
+    const videoUrl = isVideoMsg ? getMediaUrl(content.url) : null;
 
     useEffect(() => {
         if (!matrixClient || !roomId || !eventId || isNested) return;
@@ -360,18 +367,42 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         );
                     })()}
 
-                    {/* Media Attachment — rendered below text */}
+                    {/* Image Attachment */}
                     {!isRepost && imageUrl && (
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
-                            <Link href={`/post/${eventId}`}>
+                            <div
+                                className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
+                                onClick={(e) => { e.stopPropagation(); if (!isLocked) setLightboxOpen(true); }}
+                            >
                                 <img
                                     src={imageUrl}
                                     alt={body || 'Post image'}
                                     className={`w-full h-auto object-cover max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
                                     style={{ aspectRatio: 'auto' }}
                                     loading="lazy"
+                                    onError={() => setImageBroken(true)}
                                 />
-                            </Link>
+                            </div>
+                            {isLocked && (
+                                <LockedContentOverlay
+                                    accessLevel={accessLevel}
+                                    price={price}
+                                    onUnlockClick={() => { alert('Premium subscription flow coming soon!') }}
+                                />
+                            )}
+                        </div>
+                    )}
+
+                    {/* Video Attachment */}
+                    {!isRepost && videoUrl && (
+                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
+                            <video
+                                src={videoUrl}
+                                controls
+                                className={`w-full rounded-xl transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none pointer-events-none' : ''}`}
+                                preload="metadata"
+                                onClick={(e) => e.stopPropagation()}
+                            />
                             {isLocked && (
                                 <LockedContentOverlay
                                     accessLevel={accessLevel}
@@ -474,6 +505,15 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 onConfirm={confirmDelete}
                 isDeleting={isDeleting}
             />
+
+            {imageUrl && (
+                <ImageLightbox
+                    src={imageUrl}
+                    alt={body || 'Post image'}
+                    open={lightboxOpen}
+                    onClose={() => setLightboxOpen(false)}
+                />
+            )}
         </div>
     );
 }

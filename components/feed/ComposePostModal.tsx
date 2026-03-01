@@ -13,7 +13,7 @@ import { Textarea } from '../ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
-import { Loader2, Image as ImageIcon, X, Lock } from 'lucide-react';
+import { Loader2, Image as ImageIcon, X, Lock, Video } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { getMatrixClient, sendEventWithRetry } from '../../lib/matrix';
 import { createClient } from '../../lib/supabase/client';
@@ -31,8 +31,9 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
     const [isPosting, setIsPosting] = useState(false);
     const [hasWarning, setHasWarning] = useState(false);
     const [warningText, setWarningText] = useState('');
-    const [selectedImage, setSelectedImage] = useState<File | null>(null);
-    const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
+    const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+    const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
     const [accessLevel, setAccessLevel] = useState<string>('public');
     const [price, setPrice] = useState<string>('');
     const [collectionId, setCollectionId] = useState<string>('none');
@@ -55,27 +56,66 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         fetchUser();
     }, []);
 
-    const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        setSelectedImage(file);
+
+        const isVideo = file.type.startsWith('video/');
+
+        if (isVideo) {
+            // Pre-upload validation: check video duration
+            try {
+                const duration = await getVideoDuration(file);
+                if (duration > 180) {
+                    alert('Video excede el límite de 3 minutos para cuidar el servidor.');
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                    return;
+                }
+            } catch (err) {
+                console.error('Could not read video duration:', err);
+                alert('No se pudo leer el video. Intenta con otro archivo.');
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                return;
+            }
+            setMediaType('video');
+        } else {
+            setMediaType('image');
+        }
+
+        setSelectedMedia(file);
 
         // Create preview
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            setImagePreview(reader.result as string);
-        };
-        reader.readAsDataURL(file);
+        const objectUrl = URL.createObjectURL(file);
+        setMediaPreview(objectUrl);
     };
 
-    const removeImage = () => {
-        setSelectedImage(null);
-        setImagePreview(null);
+    /** Use HTMLVideoElement to read duration without uploading */
+    const getVideoDuration = (file: File): Promise<number> => {
+        return new Promise((resolve, reject) => {
+            const video = document.createElement('video');
+            video.preload = 'metadata';
+            video.onloadedmetadata = () => {
+                URL.revokeObjectURL(video.src);
+                resolve(video.duration);
+            };
+            video.onerror = () => {
+                URL.revokeObjectURL(video.src);
+                reject(new Error('Failed to load video metadata'));
+            };
+            video.src = URL.createObjectURL(file);
+        });
+    };
+
+    const removeMedia = () => {
+        if (mediaPreview) URL.revokeObjectURL(mediaPreview);
+        setSelectedMedia(null);
+        setMediaPreview(null);
+        setMediaType(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handlePost = async () => {
-        if ((!content.trim() && !selectedImage)) return;
+        if ((!content.trim() && !selectedMedia)) return;
 
         setIsPosting(true);
         try {
@@ -197,7 +237,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
             };
 
             // If it's just text
-            if (!selectedImage) {
+            if (!selectedMedia) {
                 let body = content;
                 if (hasWarning) {
                     body = `[Content Warning: ${warningText || 'Sensitive Content'}]\n\n${content}`;
@@ -210,26 +250,27 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                 await sendEventWithRetry(currentRoomId, "m.room.message", msgPayload);
 
             } else {
-                // Image Upload Flow
-                const response = await matrixClient.uploadContent(selectedImage);
+                // Media Upload Flow (Image or Video)
+                const response = await matrixClient.uploadContent(selectedMedia);
                 const contentUri = response.content_uri;
 
-                let body = selectedImage.name;
+                let body = selectedMedia.name;
                 if (content.trim()) body = content;
                 if (hasWarning) {
                     body = `[Content Warning: ${warningText || 'Sensitive Content'}]\n\n${body}`;
                 }
 
-                const imgPayload = buildPayload({
-                    msgtype: "m.image",
+                const isVideo = mediaType === 'video';
+                const mediaPayload = buildPayload({
+                    msgtype: isVideo ? "m.video" : "m.image",
                     body: body,
                     url: contentUri,
                     info: {
-                        mimetype: selectedImage.type,
-                        size: selectedImage.size
+                        mimetype: selectedMedia.type,
+                        size: selectedMedia.size
                     }
                 });
-                await sendEventWithRetry(currentRoomId, "m.room.message", imgPayload);
+                await sendEventWithRetry(currentRoomId, "m.room.message", mediaPayload);
             }
 
             setContent('');
@@ -238,7 +279,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
             setAccessLevel('public');
             setPrice('');
             setCollectionId('none');
-            removeImage();
+            removeMedia();
             setOpen(false);
             if (onPostCreated) onPostCreated();
         } catch (error) {
@@ -273,12 +314,24 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                             onChange={(e) => setContent(e.target.value)}
                         />
 
-                        {imagePreview && (
+                        {mediaPreview && mediaType === 'image' && (
                             <div className="relative rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 group">
-                                <img src={imagePreview} alt="Preview" className="w-full max-h-[300px] object-cover" />
+                                <img src={mediaPreview} alt="Preview" className="w-full max-h-[300px] object-cover" />
                                 <button
-                                    onClick={removeImage}
+                                    onClick={removeMedia}
                                     className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white backdrop-blur-sm transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
+
+                        {mediaPreview && mediaType === 'video' && (
+                            <div className="relative rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 group">
+                                <video src={mediaPreview} className="w-full max-h-[300px] rounded-xl" controls preload="metadata" />
+                                <button
+                                    onClick={removeMedia}
+                                    className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white backdrop-blur-sm transition-colors z-10"
                                 >
                                     <X className="w-4 h-4" />
                                 </button>
@@ -308,16 +361,16 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                                 type="file"
                                 ref={fileInputRef}
                                 className="hidden"
-                                accept="image/*"
-                                onChange={handleImageSelect}
+                                accept="image/*,video/mp4,video/quicktime"
+                                onChange={handleMediaSelect}
                             />
                             <Button
                                 variant="ghost"
                                 size="icon"
                                 className="text-blue-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-full"
                                 onClick={() => fileInputRef.current?.click()}
-                                disabled={isPosting || selectedImage !== null}
-                                title="Add Image"
+                                disabled={isPosting || selectedMedia !== null}
+                                title="Add Image or Video"
                             >
                                 <ImageIcon className="w-5 h-5" />
                             </Button>
@@ -369,7 +422,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
                     <Button
                         onClick={handlePost}
-                        disabled={(!content.trim() && !selectedImage) || isPosting || (hasWarning && !warningText.trim())}
+                        disabled={(!content.trim() && !selectedMedia) || isPosting || (hasWarning && !warningText.trim())}
                         className="rounded-full bg-blue-500 hover:bg-blue-600 font-bold px-8"
                     >
                         {isPosting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Post'}

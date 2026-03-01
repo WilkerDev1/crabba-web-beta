@@ -79,14 +79,14 @@ export const checkServerHealth = async (): Promise<boolean> => {
 };
 
 export const getMatrixClient = async (): Promise<MatrixClient | null> => {
-    // 1. Check for existing in-memory client first
+    // 1. Check for existing in-memory client — trust the reference, don't re-check getAccessToken()
+    //    The token was validated at construction time; re-checking causes false negatives in some SDK states
+    //    which trigger redundant /api/auth/matrix-token calls → 429 flood.
     if (globalForMatrix.matrixClient) {
-        if (globalForMatrix.matrixClient.getAccessToken()) {
-            return globalForMatrix.matrixClient;
-        }
+        return globalForMatrix.matrixClient;
     }
 
-    // 2. Check if a login connection is already in progress
+    // 2. Check if a login/init is already in progress (single-flight dedup)
     if (globalForMatrix.loginPromise) {
         return globalForMatrix.loginPromise;
     }
@@ -237,9 +237,13 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
             });
 
             globalForMatrix.matrixClient = client;
+            // NOTE: We intentionally do NOT clear loginPromise here.
+            // Keeping it cached means concurrent callers get the same resolved client
+            // instead of re-entering the init flow (which causes 429 loops).
             return client;
         } catch (error) {
             console.error('❌ Failed to initialize Matrix client:', error);
+            // Only clear on failure so the next call can retry
             globalForMatrix.loginPromise = null;
             throw error;
         }
