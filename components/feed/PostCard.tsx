@@ -367,7 +367,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
                     {/* Image Attachment — authenticated blob fetch */}
                     {!isRepost && hasImage && (
-                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
+                        <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[450px]">
                             <div
                                 className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
                                 onClick={(e) => { e.stopPropagation(); if (!isLocked && !showWarningOverlay) setLightboxOpen(true); }}
@@ -375,7 +375,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 <MatrixMedia
                                     mxcUrl={content.url}
                                     alt={body || 'Post image'}
-                                    className={`w-full h-auto object-contain max-w-full transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
+                                    className={`w-full h-full object-cover object-center max-h-[450px] transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
                                     onBlobReady={(url) => setBlobUrl(url)}
                                 />
                             </div>

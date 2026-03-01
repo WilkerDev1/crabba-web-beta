@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactCrop, { type Crop, type PixelCrop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import {
     Dialog,
     DialogContent,
@@ -40,6 +42,14 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
     const [collectionId, setCollectionId] = useState<string>('none');
     const fileInputRef = useRef<HTMLInputElement>(null);
 
+    // Crop mode state
+    const [cropMode, setCropMode] = useState(false);
+    const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+    const [crop, setCrop] = useState<Crop>();
+    const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null);
+    const cropImgRef = useRef<HTMLImageElement>(null);
+    const [rawFile, setRawFile] = useState<File | null>(null);
+
     // Auth State
     const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
@@ -59,7 +69,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
     /** Core file handler — used by both <input> and drag-and-drop */
     const handleFile = async (file: File) => {
-        if (selectedMedia) return; // Already have media selected
+        if (selectedMedia) return;
 
         const isVideo = file.type.startsWith('video/');
         const isImage = file.type.startsWith('image/');
@@ -70,7 +80,6 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         }
 
         if (isVideo) {
-            // Pre-upload validation: check video duration
             try {
                 const duration = await getVideoDuration(file);
                 if (duration > 180) {
@@ -83,12 +92,16 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                 return;
             }
             setMediaType('video');
+            setSelectedMedia(file);
+            setMediaPreview(URL.createObjectURL(file));
         } else {
-            setMediaType('image');
+            // Enter crop mode for images
+            setRawFile(file);
+            setCropImageSrc(URL.createObjectURL(file));
+            setCropMode(true);
+            setCrop(undefined);
+            setCompletedCrop(null);
         }
-
-        setSelectedMedia(file);
-        setMediaPreview(URL.createObjectURL(file));
     };
 
     const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -125,6 +138,71 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         setSelectedMedia(null);
         setMediaPreview(null);
         setMediaType(null);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    /** Apply the crop: draw on canvas → extract as File */
+    const applyCrop = useCallback(() => {
+        const image = cropImgRef.current;
+        if (!image || !rawFile) {
+            // No crop made — use original image as-is
+            if (rawFile) {
+                setMediaType('image');
+                setSelectedMedia(rawFile);
+                setMediaPreview(cropImageSrc);
+            }
+            setCropMode(false);
+            return;
+        }
+
+        if (!completedCrop || completedCrop.width === 0 || completedCrop.height === 0) {
+            // No crop selection — use original
+            setMediaType('image');
+            setSelectedMedia(rawFile);
+            setMediaPreview(cropImageSrc);
+            setCropMode(false);
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        const scaleX = image.naturalWidth / image.width;
+        const scaleY = image.naturalHeight / image.height;
+
+        canvas.width = completedCrop.width * scaleX;
+        canvas.height = completedCrop.height * scaleY;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        ctx.drawImage(
+            image,
+            completedCrop.x * scaleX,
+            completedCrop.y * scaleY,
+            completedCrop.width * scaleX,
+            completedCrop.height * scaleY,
+            0, 0,
+            canvas.width,
+            canvas.height
+        );
+
+        canvas.toBlob((blob) => {
+            if (!blob) return;
+            const croppedFile = new File([blob], rawFile.name, { type: rawFile.type || 'image/jpeg' });
+            setMediaType('image');
+            setSelectedMedia(croppedFile);
+            setMediaPreview(URL.createObjectURL(croppedFile));
+            setCropMode(false);
+            if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+        }, rawFile.type || 'image/jpeg', 0.92);
+    }, [completedCrop, rawFile, cropImageSrc]);
+
+    const cancelCrop = () => {
+        if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+        setCropImageSrc(null);
+        setCropMode(false);
+        setRawFile(null);
+        setCrop(undefined);
+        setCompletedCrop(null);
         if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
@@ -333,12 +411,45 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                             onChange={(e) => setContent(e.target.value)}
                         />
 
-                        {mediaPreview && (
+                        {/* Crop Mode UI */}
+                        {cropMode && cropImageSrc && (
+                            <div className="rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900">
+                                <ReactCrop
+                                    crop={crop}
+                                    onChange={(c) => setCrop(c)}
+                                    onComplete={(c) => setCompletedCrop(c)}
+                                >
+                                    <img
+                                        ref={cropImgRef}
+                                        src={cropImageSrc}
+                                        alt="Crop preview"
+                                        className="max-h-[400px] w-full object-contain"
+                                    />
+                                </ReactCrop>
+                                <div className="flex gap-2 p-3 justify-end border-t border-neutral-800">
+                                    <Button
+                                        variant="ghost"
+                                        onClick={cancelCrop}
+                                        className="text-neutral-400 hover:text-white"
+                                    >
+                                        Cancel
+                                    </Button>
+                                    <Button
+                                        onClick={applyCrop}
+                                        className="bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-full px-6"
+                                    >
+                                        Apply Crop
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {!cropMode && mediaPreview && (
                             <div className="relative rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 group">
                                 {mediaType === 'video' ? (
                                     <video src={mediaPreview} className="w-full max-h-[350px] object-contain rounded-xl" controls preload="metadata" />
                                 ) : (
-                                    <img src={mediaPreview} alt="Preview" className="w-full max-h-[350px] object-contain rounded-xl" />
+                                    <img src={mediaPreview} alt="Preview" className="w-full max-h-[350px] object-cover rounded-xl" />
                                 )}
                                 <button
                                     onClick={removeMedia}
@@ -387,7 +498,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                                 size="icon"
                                 className="text-orange-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-full"
                                 onClick={() => fileInputRef.current?.click()}
-                                disabled={isPosting || selectedMedia !== null}
+                                disabled={isPosting || selectedMedia !== null || cropMode}
                                 title="Add Image or Video"
                             >
                                 <ImageIcon className="w-5 h-5" />
