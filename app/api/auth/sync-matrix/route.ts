@@ -15,16 +15,22 @@ const MATRIX_DOMAIN = process.env.NEXT_PUBLIC_MATRIX_DOMAIN || 'crabba.net'
 
 export async function POST(request: Request) {
     try {
-        const { uuid, email } = await request.json()
+        const { uuid, email, username } = await request.json()
 
         if (!uuid || !email) {
             return NextResponse.json({ error: 'Missing uuid or email' }, { status: 400 })
         }
 
-        // 1. Generate Matrix User ID
-        // Matrix User IDs are in the format @localpart:domain
-        // e.g., @user_1234abcd:crabba.net
-        const localpart = `user_${uuid.replace(/-/g, '')}`
+        // 1. Determine the Matrix localpart
+        // Priority: explicit username > email prefix > UUID fallback
+        const localpart = username
+            ? username.toLowerCase().replace(/[^a-z0-9_=\-./]/g, '')
+            : email.split('@')[0].toLowerCase().replace(/[^a-z0-9_=\-./]/g, '');
+
+        if (!localpart || localpart.length < 3) {
+            return NextResponse.json({ error: 'Invalid username: must be at least 3 characters.' }, { status: 400 })
+        }
+
         const matrixUserId = `@${localpart}:${MATRIX_DOMAIN}`
 
         // Generate a secure random password for the Matrix account
@@ -55,14 +61,9 @@ export async function POST(request: Request) {
             const { nonce } = await nonceRes.json();
 
             // STEP 2: Generate HMAC SHA1 Signature
-            // The string to sign format is strictly: <nonce>\x00<username>\x00<password>\x00notadmin
             const crypto = await import('crypto');
-
             const adminMode = 'notadmin';
-
-            // Build the exact string with null bytes matching Python's \x00
             const stringToSign = `${nonce}\x00${localpart}\x00${matrixPassword}\x00${adminMode}`;
-
             const hmac = crypto.createHmac('sha1', sharedSecret);
             hmac.update(stringToSign);
             const mac = hmac.digest('hex');
@@ -89,9 +90,8 @@ export async function POST(request: Request) {
                 const errorData = await registerRes.json()
                 console.error(`[Identity Bridge] Synapse Reg Error:`, errorData);
 
-                // If user already exists on the new domain, that's OK — just update the password
                 if (errorData.errcode === 'M_USER_IN_USE') {
-                    console.log(`[Identity Bridge] User ${matrixUserId} already exists on ${MATRIX_DOMAIN}. Proceeding with credential update.`);
+                    console.log(`[Identity Bridge] User ${matrixUserId} already exists. Proceeding with credential update.`);
                 } else {
                     throw new Error(`Matrix Registration Failed: ${errorData.error || 'Unknown error'}`);
                 }
@@ -101,12 +101,11 @@ export async function POST(request: Request) {
 
         } catch (matrixError: any) {
             console.error(`[Identity Bridge] Failed to register Matrix identity:`, matrixError.message);
-            return NextResponse.json({ error: 'Identity auto-provisioning failed.' }, { status: 500 })
+            return NextResponse.json({ error: `Identity provisioning failed: ${matrixError.message}` }, { status: 500 })
         }
 
-        // 3. Link Supabase UUID with Matrix User ID in the profiles table
-        // Use UPSERT to handle migration from :localhost → :crabba.net
-        console.log(`[Identity Bridge] Linking Supabase UUID ${uuid} with Matrix User ID ${matrixUserId}...`);
+        // 3. Link Supabase UUID with Matrix User ID and custom username
+        console.log(`[Identity Bridge] Linking Supabase UUID ${uuid} → ${matrixUserId} (username: ${localpart})...`);
 
         const { error: profileError } = await supabaseAdmin
             .from('profiles')
@@ -114,18 +113,21 @@ export async function POST(request: Request) {
                 {
                     id: uuid,
                     matrix_user_id: matrixUserId,
-                    username: email.split('@')[0],
+                    username: localpart,
                 },
                 { onConflict: 'id' }
             )
 
         if (profileError) {
             console.error(`[Identity Bridge] Supabase Profile Upsert Error:`, profileError)
-            return NextResponse.json({ error: 'Failed to create/update user profile linking.' }, { status: 500 })
+            // Check for unique username violation
+            if (profileError.code === '23505' && profileError.message?.includes('username')) {
+                return NextResponse.json({ error: 'This username is already taken. Please choose another.' }, { status: 409 })
+            }
+            return NextResponse.json({ error: 'Failed to create/update user profile.' }, { status: 500 })
         }
 
-        // 4. Store the auto-generated Matrix password in matrix_credentials
-        // Use UPSERT to handle migration case where old credentials exist
+        // 4. Store Matrix credentials
         const { error: credsError } = await supabaseAdmin
             .from('matrix_credentials')
             .upsert(

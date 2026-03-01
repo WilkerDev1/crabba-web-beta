@@ -54,6 +54,7 @@ export async function GET() {
                         body: JSON.stringify({
                             uuid: user.id,
                             email: user.email || `${user.id}@crabba.net`,
+                            username: user.user_metadata?.username || undefined,
                         }),
                     }
                 );
