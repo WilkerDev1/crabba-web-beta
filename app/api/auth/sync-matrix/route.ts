@@ -11,7 +11,7 @@ const supabaseAdmin = createClient(
 const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
 const MATRIX_HOMESERVER = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
 const isNgrok = MATRIX_HOMESERVER.includes('ngrok-free.app') || MATRIX_HOMESERVER.includes('ngrok-free.dev') || MATRIX_HOMESERVER.includes('ngrok.io');
-const MATRIX_DOMAIN = process.env.NEXT_PUBLIC_MATRIX_DOMAIN || 'crabba.net'
+const MATRIX_DOMAIN = 'crabba.net';
 
 export async function POST(request: Request) {
     try {

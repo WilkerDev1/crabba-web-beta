@@ -212,7 +212,26 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                     console.error("Matrix Sync Error Details:", errMessage);
 
                     if (errMessage.includes("M_UNKNOWN_TOKEN")) {
-                        console.warn("Matrix token rejected. Client needs to re-auth.");
+                        console.warn("🚨 Matrix token rejected (M_UNKNOWN_TOKEN). Auto-clearing session and redirecting to login...");
+                        // Immediately stop the client to prevent further 401 loops
+                        try { client.stopClient(); } catch (_) { }
+                        // Clear all cached credentials
+                        if (typeof window !== 'undefined') {
+                            localStorage.removeItem('matrix_access_token');
+                            localStorage.removeItem('matrix_user_id');
+                            localStorage.removeItem('matrix_device_id');
+                            localStorage.removeItem('matrix_homeserver_url');
+                        }
+                        // Reset singleton state
+                        globalForMatrix.matrixClient = null;
+                        globalForMatrix.loginPromise = null;
+                        globalForMatrix.clientStarted = false;
+                        globalForMatrix.startPromise = null;
+                        // Redirect to login
+                        if (typeof window !== 'undefined') {
+                            window.location.href = '/login';
+                        }
+                        return;
                     }
                 }
             });
@@ -235,8 +254,8 @@ export const clearMatrixSession = async () => {
     // Stop syncing background processes
     if (globalForMatrix.matrixClient) {
         try {
-            await globalForMatrix.matrixClient.logout();
             globalForMatrix.matrixClient.stopClient();
+            await globalForMatrix.matrixClient.logout();
         } catch (error) {
             console.error('Non-fatal error logging out of Matrix:', error);
         }
@@ -245,12 +264,15 @@ export const clearMatrixSession = async () => {
     // Reset SPA global memory
     globalForMatrix.matrixClient = null;
     globalForMatrix.loginPromise = null;
+    globalForMatrix.clientStarted = false;
+    globalForMatrix.startPromise = null;
 
-    // Clear local storage
+    // Clear ALL Matrix items from localStorage
     if (typeof window !== 'undefined') {
         localStorage.removeItem('matrix_access_token');
         localStorage.removeItem('matrix_user_id');
         localStorage.removeItem('matrix_device_id');
+        localStorage.removeItem('matrix_homeserver_url');
     }
 };
 
