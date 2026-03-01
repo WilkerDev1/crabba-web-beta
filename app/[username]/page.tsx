@@ -117,6 +117,9 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                 const matrixClient = getSharedClient() || await getMatrixClient();
                 if (!matrixClient) return;
 
+                // Guests don't have synced rooms — skip hashtag extraction
+                if (!matrixClient.getAccessToken()) return;
+
                 const room = matrixClient.getRoom(ROOM_ID);
                 if (!room) return;
 

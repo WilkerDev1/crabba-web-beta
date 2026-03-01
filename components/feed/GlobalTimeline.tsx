@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { getMatrixClient, getSharedClient, getGuestToken } from '@/lib/matrix';
+import { getMatrixClient, getSharedClient, guestFetch } from '@/lib/matrix';
 import { PostCard } from './PostCard';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -87,13 +87,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 console.log('[GlobalTimeline] Guest mode: fetching public room messages via HTTP...');
                 try {
                     const baseUrl = matrixClient.getHomeserverUrl();
-                    const guestToken = await getGuestToken(baseUrl);
-                    const url = `${baseUrl}/_matrix/client/v3/rooms/${encodeURIComponent(ROOM_ID)}/messages?dir=b&limit=50`;
-                    const res = await fetch(url, {
-                        headers: { 'Authorization': `Bearer ${guestToken}` },
-                    });
-                    if (!res.ok) throw new Error(`Public room fetch failed: ${res.status}`);
-                    const data = await res.json();
+                    const encodedRoomId = encodeURIComponent(ROOM_ID);
+                    const data = await guestFetch(baseUrl, `/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=50`);
 
                     // Convert raw JSON events into a shape compatible with our PostCard
                     const rawEvents = (data.chunk || []).filter((ev: any) => {

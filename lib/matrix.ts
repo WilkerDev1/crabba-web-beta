@@ -90,6 +90,35 @@ export async function getGuestToken(baseUrl?: string): Promise<string> {
 }
 
 /**
+ * Fetch a Matrix REST endpoint using the cached guest token.
+ * Automatically registers a guest if no token is cached.
+ * Returns parsed JSON response.
+ */
+export async function guestFetch(baseUrl: string, endpoint: string): Promise<any> {
+    const token = await getGuestToken(baseUrl);
+    const url = `${baseUrl}${endpoint}`;
+    const res = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` },
+    });
+
+    if (res.status === 401) {
+        // Token expired — clear cache and retry once
+        if (typeof window !== 'undefined') {
+            sessionStorage.removeItem('matrix_guest_token');
+        }
+        const freshToken = await getGuestToken(baseUrl);
+        const retry = await fetch(url, {
+            headers: { 'Authorization': `Bearer ${freshToken}` },
+        });
+        if (!retry.ok) throw new Error(`Guest fetch failed: ${retry.status}`);
+        return retry.json();
+    }
+
+    if (!res.ok) throw new Error(`Guest fetch failed: ${res.status}`);
+    return res.json();
+}
+
+/**
  * Ping /_matrix/client/versions to verify the homeserver is reachable.
  * Returns true if healthy, false if unreachable.
  */

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
-import { getMatrixClient, getSharedClient } from '@/lib/matrix';
+import { getMatrixClient, getSharedClient, guestFetch } from '@/lib/matrix';
 import { PostCard } from '@/components/feed/PostCard';
 import { Search as SearchIcon, Loader2 } from 'lucide-react';
 
@@ -32,15 +32,45 @@ function SearchContent() {
                 }
                 setClient(matrixClient);
 
-                const room = matrixClient.getRoom(ROOM_ID);
-                if (room) {
-                    const timeline = room.getLiveTimeline();
-                    const allEvents = timeline.getEvents().reverse();
-                    const messageEvents = allEvents.filter((e: any) => {
-                        if (e.isRedacted() || e.getType() !== 'm.room.message') return false;
-                        return true;
-                    });
-                    setEvents(messageEvents);
+                const isGuest = !matrixClient.getAccessToken();
+
+                if (isGuest) {
+                    // ─── GUEST MODE: Fetch messages via REST API ───
+                    console.log('[Search] Guest mode: fetching via HTTP...');
+                    const baseUrl = matrixClient.getHomeserverUrl();
+                    const encodedRoomId = encodeURIComponent(ROOM_ID);
+                    const data = await guestFetch(
+                        baseUrl,
+                        `/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=100`
+                    );
+
+                    const rawEvents = (data.chunk || [])
+                        .filter((ev: any) => ev.type === 'm.room.message')
+                        .map((ev: any) => ({
+                            getId: () => ev.event_id,
+                            getType: () => ev.type,
+                            getSender: () => ev.sender,
+                            getContent: () => ev.content || {},
+                            getTs: () => ev.origin_server_ts || 0,
+                            getRoomId: () => ev.room_id || ROOM_ID,
+                            isRedacted: () => false,
+                            getDate: () => new Date(ev.origin_server_ts || 0),
+                            event: ev,
+                            status: null,
+                        }));
+                    setEvents(rawEvents);
+                } else {
+                    // ─── AUTHENTICATED MODE: Use SDK ───
+                    const room = matrixClient.getRoom(ROOM_ID);
+                    if (room) {
+                        const timeline = room.getLiveTimeline();
+                        const allEvents = timeline.getEvents().reverse();
+                        const messageEvents = allEvents.filter((e: any) => {
+                            if (e.isRedacted() || e.getType() !== 'm.room.message') return false;
+                            return true;
+                        });
+                        setEvents(messageEvents);
+                    }
                 }
             } catch (err) {
                 console.error('Search init failed:', err);

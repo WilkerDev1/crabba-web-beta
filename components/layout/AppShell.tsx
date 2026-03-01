@@ -269,11 +269,19 @@ export function AppShell({ children }: AppShellProps) {
                 <MobileNavItem href="/search" icon={<Search className="w-6 h-6" />} active={pathname === '/search'} />
 
                 {/* Floating Compose Button */}
-                <ComposePostModal>
-                    <button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-lg shadow-orange-600/30 -mt-5 text-2xl font-light active:scale-95 transition-transform">
-                        +
-                    </button>
-                </ComposePostModal>
+                {user ? (
+                    <ComposePostModal>
+                        <button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-lg shadow-orange-600/30 -mt-5 text-2xl font-light active:scale-95 transition-transform">
+                            +
+                        </button>
+                    </ComposePostModal>
+                ) : (
+                    <Link href="/register">
+                        <button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-lg shadow-orange-600/30 -mt-5 text-lg font-bold active:scale-95 transition-transform">
+                            🦀
+                        </button>
+                    </Link>
+                )}
 
                 <MobileNavItem href="/notifications" icon={<Bell className="w-6 h-6" />} active={pathname === '/notifications'} />
                 <MobileNavItem href={profileHref} icon={<User className="w-6 h-6" />} active={pathname === profileHref} />
