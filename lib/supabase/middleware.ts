@@ -38,10 +38,12 @@ export async function updateSession(request: NextRequest) {
     const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
     const isLandingPage = pathname === '/';
     const isPostDetail = pathname.startsWith('/post/');
+    const isExplorePage = pathname.startsWith('/explore');
+    const isSearchPage = pathname.startsWith('/search');
     // Catch-all: any single-segment path like /username is a profile page
-    const isProfilePage = /^\/[^/]+$/.test(pathname) && !isAuthRoute && !pathname.startsWith('/api') && !pathname.startsWith('/fanbox') && !pathname.startsWith('/search') && !pathname.startsWith('/notifications') && !pathname.startsWith('/settings');
+    const isProfilePage = /^\/[^/]+$/.test(pathname) && !isAuthRoute && !pathname.startsWith('/api') && !pathname.startsWith('/fanbox') && !pathname.startsWith('/search') && !pathname.startsWith('/notifications') && !pathname.startsWith('/settings') && !pathname.startsWith('/explore');
 
-    const isPublicRoute = isAuthRoute || isLandingPage || isPostDetail || isProfilePage;
+    const isPublicRoute = isAuthRoute || isLandingPage || isPostDetail || isProfilePage || isExplorePage || isSearchPage;
 
     if (!user && !isPublicRoute) {
         // no user on a private route → redirect to landing page

@@ -145,7 +145,15 @@ export default function LandingClient() {
                         </form>
                     )}
                     {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
-                    <p className="mt-4 text-xs text-zinc-600">Closed Beta — invite-only access for creators</p>
+                    <div className="mt-4 flex flex-col items-center gap-3">
+                        <p className="text-xs text-zinc-600">Closed Beta — invite-only access for creators</p>
+                        <Link
+                            href="/explore"
+                            className="border border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-full px-6 py-2 transition-all font-medium text-sm"
+                        >
+                            Try Reading Mode →
+                        </Link>
+                    </div>
                 </div>
             </section>
 

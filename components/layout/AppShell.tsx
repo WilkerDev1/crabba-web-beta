@@ -179,7 +179,7 @@ export function AppShell({ children }: AppShellProps) {
                     </div>
 
                     <nav className="flex-1 flex flex-col gap-2">
-                        <NavItem href="/" icon={<Home className="w-7 h-7" />} label="Home" active={pathname === '/'} />
+                        <NavItem href={user ? '/' : '/explore'} icon={<Home className="w-7 h-7" />} label="Home" active={pathname === '/' || pathname === '/explore'} />
                         <NavItem href="/search" icon={<Search className="w-7 h-7" />} label="Search" active={pathname === '/search'} />
                         <NavItem href="/fanbox" icon={<Box className="w-7 h-7" />} label="BostCrabb" active={pathname === '/fanbox'} />
                         <NavItem href="/notifications" icon={<Bell className="w-7 h-7" />} label="Notifications" active={pathname === '/notifications'} />
@@ -265,7 +265,7 @@ export function AppShell({ children }: AppShellProps) {
 
             {/* ─── Mobile Bottom Navigation Bar ─── */}
             < nav className="fixed bottom-0 left-0 right-0 z-50 bg-black/90 backdrop-blur-md border-t border-neutral-800 flex items-center justify-around py-2 px-2 lg:hidden safe-area-bottom" >
-                <MobileNavItem href="/" icon={<Home className="w-6 h-6" />} active={pathname === '/'} />
+                <MobileNavItem href={user ? '/' : '/explore'} icon={<Home className="w-6 h-6" />} active={pathname === '/' || pathname === '/explore'} />
                 <MobileNavItem href="/search" icon={<Search className="w-6 h-6" />} active={pathname === '/search'} />
 
                 {/* Floating Compose Button */}
