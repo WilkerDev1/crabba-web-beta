@@ -78,7 +78,7 @@ export default function CreatorOnboardingPage() {
                         Become a Crabba Creator
                     </h1>
                     <p className="text-neutral-400 text-lg max-w-lg mx-auto">
-                        Monetize your artwork, connect directly with your biggest fans, and build your own custom-tailored Fanbox.
+                        Monetize your artwork, connect directly with your biggest fans, and build your own custom-tailored BostCrabb.
                     </p>
                 </div>
 
@@ -117,7 +117,7 @@ export default function CreatorOnboardingPage() {
                                 className="w-full bg-gradient-to-r from-orange-500 to-pink-500 hover:opacity-90 text-white font-bold py-6 text-lg"
                             >
                                 {saving ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
-                                Accept Terms & Launch Fanbox
+                                Accept Terms & Launch BostCrabb
                             </Button>
                         </div>
                     </div>

@@ -37,11 +37,12 @@ interface GlobalTimelineProps {
     filterType?: 'all' | 'media' | 'replies';
     searchQuery?: string;
     filterThreadId?: string;
+    filterHashtag?: string;
     rootOnly?: boolean;
     showTabs?: boolean;
 }
 
-export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, filterThreadId, rootOnly = false, showTabs = false }: GlobalTimelineProps) {
+export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, filterThreadId, filterHashtag, rootOnly = false, showTabs = false }: GlobalTimelineProps) {
     const [events, setEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
@@ -196,6 +197,11 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
                     }
 
+                    if (filterHashtag) {
+                        const body = content.body || '';
+                        if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
+                    }
+
                     return true;
                 });
                 setEvents(messageEvents);
@@ -275,6 +281,11 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return;
             }
 
+            if (filterHashtag) {
+                const body = content.body || '';
+                if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return;
+            }
+
             // Prepend (newest first) — avoid duplicates by event ID
             setEvents(prev => {
                 const eventId = event.getId();
@@ -287,7 +298,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         return () => {
             client.removeListener('Room.timeline' as any, onTimeline);
         };
-    }, [client, filterUserId, filterType, filterThreadId, searchQuery, rootOnly]);
+    }, [client, filterUserId, filterType, filterThreadId, searchQuery, filterHashtag, rootOnly]);
 
     // ─── Interaction Cache Fetcher ───
     // Batch-fetch interaction counts for all visible events.

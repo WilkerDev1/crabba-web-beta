@@ -1,16 +1,19 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
-import { notFound } from 'next/navigation';
+import { useEffect, useState, useMemo, use } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { AppShell } from '@/components/layout/AppShell';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
-import { Loader2, Calendar, MapPin, Link as LinkIcon, Lock, Gift } from 'lucide-react';
+import { Loader2, Calendar, MapPin, Link as LinkIcon, Lock, Gift, FolderOpen } from 'lucide-react';
 import { format } from 'date-fns';
 import { GlobalTimeline } from '@/components/feed/GlobalTimeline';
+import { getSharedClient, getMatrixClient } from '@/lib/matrix';
+import { MatrixMedia } from '@/components/feed/MatrixMedia';
+
+const ROOM_ID = process.env.NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID || '!iyDNoJTahsHwSkiukz:localhost';
 
 interface Profile {
     id: string;
@@ -21,6 +24,12 @@ interface Profile {
     banner_url: string | null;
     created_at: string;
     is_creator: boolean;
+}
+
+interface SmartFolder {
+    tag: string;
+    count: number;
+    coverMxcUrl: string;
 }
 
 export default function UserProfilePage({ params }: { params: Promise<{ username: string }> }) {
@@ -36,9 +45,16 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
     const [plans, setPlans] = useState<any[]>([]);
     const [collections, setCollections] = useState<any[]>([]);
 
+    // ─── New: Hashtag filter & controlled tabs ───
+    const [activeFilter, setActiveFilter] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState('posts');
+
+    // ─── New: User hashtags & smart folders data ───
+    const [userHashtags, setUserHashtags] = useState<{ tag: string; count: number }[]>([]);
+    const [smartFolders, setSmartFolders] = useState<SmartFolder[]>([]);
+
     useEffect(() => {
         const fetchProfileAndStats = async () => {
-            // Remove @ if they typed it in URL
             const cleanUsername = username.replace(/^@/, '');
 
             const { data, error } = await supabase
@@ -55,11 +71,9 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
 
             setProfile(data);
 
-            // Fetch current user
             const { data: { user } } = await supabase.auth.getUser();
             setCurrentUser(user);
 
-            // Fetch stats
             const [
                 { count: followers },
                 { count: following },
@@ -77,7 +91,6 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
             if (plansData) setPlans(plansData);
             if (collectionsData) setCollections(collectionsData);
 
-            // Fetch follow status
             if (user && user.id !== data.id) {
                 const { data: followData } = await supabase
                     .from('follows')
@@ -94,6 +107,84 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
 
         fetchProfileAndStats();
     }, [username, supabase]);
+
+    // ─── Extract user's top hashtags & smart folders from Matrix timeline ───
+    useEffect(() => {
+        if (!profile?.matrix_user_id) return;
+
+        const extractUserHashtags = async () => {
+            try {
+                const matrixClient = getSharedClient() || await getMatrixClient();
+                if (!matrixClient) return;
+
+                const room = matrixClient.getRoom(ROOM_ID);
+                if (!room) return;
+
+                const timeline = room.getLiveTimeline();
+                const events = timeline.getEvents();
+
+                const tagFreq = new Map<string, number>();
+                // For smart folders: tag → { count, mostRecentMediaMxcUrl }
+                const mediaTagMap = new Map<string, { count: number; coverUrl: string }>();
+
+                for (const event of events) {
+                    if (event.getType() !== 'm.room.message') continue;
+                    if (event.getSender() !== profile.matrix_user_id) continue;
+
+                    const content = event.getContent();
+                    const body: string = content?.body || '';
+                    const msgtype = content?.msgtype;
+                    const mxcUrl = content?.url;
+                    const isMedia = msgtype === 'm.image' || msgtype === 'm.video';
+
+                    // Extract hashtags
+                    const matches = body.match(/#([A-Za-z0-9_]+)/g);
+                    if (matches) {
+                        for (const raw of matches) {
+                            const tag = raw.substring(1);
+                            if (tag.length < 2) continue;
+                            tagFreq.set(tag, (tagFreq.get(tag) || 0) + 1);
+
+                            // Track media-containing hashtags for smart folders
+                            if (isMedia && mxcUrl) {
+                                const existing = mediaTagMap.get(tag);
+                                if (!existing) {
+                                    mediaTagMap.set(tag, { count: 1, coverUrl: mxcUrl });
+                                } else {
+                                    existing.count += 1;
+                                    // Keep most recent (later in timeline = newer)
+                                    existing.coverUrl = mxcUrl;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Sort hashtags by frequency, top 10
+                const sortedTags = [...tagFreq.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 10)
+                    .map(([tag, count]) => ({ tag, count }));
+
+                setUserHashtags(sortedTags);
+
+                // Build smart folders from media tags
+                const folders: SmartFolder[] = [...mediaTagMap.entries()]
+                    .sort((a, b) => b[1].count - a[1].count)
+                    .map(([tag, data]) => ({
+                        tag,
+                        count: data.count,
+                        coverMxcUrl: data.coverUrl,
+                    }));
+
+                setSmartFolders(folders);
+            } catch (err) {
+                console.error('[Profile] Failed to extract hashtags:', err);
+            }
+        };
+
+        extractUserHashtags();
+    }, [profile?.matrix_user_id]);
 
     const handleFollow = async () => {
         if (!currentUser || !profile) return;
@@ -122,6 +213,20 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
         }
     };
 
+    const handlePillClick = (tag: string) => {
+        if (activeFilter === tag) {
+            setActiveFilter(null);
+        } else {
+            setActiveFilter(tag);
+            setActiveTab('posts');
+        }
+    };
+
+    const handleFolderClick = (tag: string) => {
+        setActiveFilter(tag);
+        setActiveTab('posts');
+    };
+
     if (loading) {
         return (
             <AppShell>
@@ -142,6 +247,8 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
             </AppShell>
         );
     }
+
+    const tabTriggerClass = "shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:text-white px-8 py-4 text-neutral-400";
 
     return (
         <AppShell>
@@ -214,33 +321,53 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                 </div>
             </div>
 
-            {/* Tabs Component - Posts | Fanbox | Plans */}
-            <div className="mt-2 border-t border-neutral-800">
-                <Tabs defaultValue="posts" className="w-full">
-                    <TabsList className="w-full justify-start rounded-none border-b border-neutral-800 bg-transparent p-0 overflow-x-auto no-scrollbar">
-                        <TabsTrigger
-                            value="posts"
-                            className="shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:text-white px-8 py-4 text-neutral-400"
+            {/* ─── Pixiv-Style Hashtag Pills Row ─── */}
+            {userHashtags.length > 0 && (
+                <div className="px-6 pb-3 flex gap-2 overflow-x-auto no-scrollbar">
+                    {userHashtags.map(({ tag }) => (
+                        <button
+                            key={tag}
+                            onClick={() => handlePillClick(tag)}
+                            className={`shrink-0 px-3 py-1 rounded-full text-sm font-medium transition-colors ${activeFilter === tag
+                                    ? 'bg-orange-600 text-white'
+                                    : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300'
+                                }`}
                         >
+                            #{tag}
+                        </button>
+                    ))}
+                    {activeFilter && (
+                        <button
+                            onClick={() => setActiveFilter(null)}
+                            className="shrink-0 px-3 py-1 rounded-full text-sm font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                        >
+                            Clear
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {/* Tabs Component - Posts | Carpetas | BostCrabb | Plans */}
+            <div className="mt-2 border-t border-neutral-800">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+                    <TabsList className="w-full justify-start rounded-none border-b border-neutral-800 bg-transparent p-0 overflow-x-auto no-scrollbar">
+                        <TabsTrigger value="posts" className={tabTriggerClass}>
                             Posts
                         </TabsTrigger>
-                        <TabsTrigger
-                            value="replies"
-                            className="shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:text-white px-8 py-4 text-neutral-400"
-                        >
+                        <TabsTrigger value="replies" className={tabTriggerClass}>
                             Replies
                         </TabsTrigger>
-                        <TabsTrigger
-                            value="media"
-                            className="shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:text-white px-8 py-4 text-neutral-400"
-                        >
+                        <TabsTrigger value="media" className={tabTriggerClass}>
                             Media
                         </TabsTrigger>
+                        <TabsTrigger value="carpetas" className={tabTriggerClass}>
+                            Carpetas
+                        </TabsTrigger>
                         <TabsTrigger
-                            value="fanbox"
+                            value="bostcrabb"
                             className="shrink-0 rounded-none border-b-2 border-transparent data-[state=active]:border-orange-500 data-[state=active]:bg-transparent data-[state=active]:text-orange-500 px-8 py-4 text-neutral-400"
                         >
-                            Fanbox
+                            BostCrabb
                         </TabsTrigger>
                         {profile.is_creator && (
                             <TabsTrigger
@@ -254,7 +381,11 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
 
                     {/* Tab 1: Posts (Filtered Timeline) */}
                     <TabsContent value="posts" className="p-0 m-0">
-                        <GlobalTimeline filterUserId={profile.matrix_user_id} filterType="all" />
+                        <GlobalTimeline
+                            filterUserId={profile.matrix_user_id}
+                            filterType="all"
+                            filterHashtag={activeFilter || undefined}
+                        />
                     </TabsContent>
 
                     <TabsContent value="replies" className="p-0 m-0">
@@ -265,18 +396,58 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                         <GlobalTimeline filterUserId={profile.matrix_user_id} filterType="media" />
                     </TabsContent>
 
-                    {/* Tab 2: Fanbox (Collections & Locked Grid placeholder) */}
-                    <TabsContent value="fanbox" className="p-0 m-0">
+                    {/* Tab: Carpetas (Smart Media Folders) */}
+                    <TabsContent value="carpetas" className="p-0 m-0">
+                        {smartFolders.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+                                <FolderOpen className="w-16 h-16 text-neutral-600 mb-6" />
+                                <h2 className="text-xl font-bold text-white mb-3">No Folders Yet</h2>
+                                <p className="text-neutral-400 max-w-sm">
+                                    Media posts tagged with hashtags will automatically appear as folders here.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4">
+                                {smartFolders.map((folder) => (
+                                    <button
+                                        key={folder.tag}
+                                        onClick={() => handleFolderClick(folder.tag)}
+                                        className="group relative rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 aspect-video text-left transition-transform hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-orange-500"
+                                    >
+                                        {/* Background Cover Image */}
+                                        <div className="absolute inset-0">
+                                            <MatrixMedia
+                                                mxcUrl={folder.coverMxcUrl}
+                                                alt={`#${folder.tag} cover`}
+                                                className="w-full h-full object-cover brightness-50 group-hover:brightness-[0.4] transition-all"
+                                            />
+                                        </div>
+
+                                        {/* Overlay Text */}
+                                        <div className="absolute inset-0 flex flex-col justify-end p-4 bg-gradient-to-t from-black/60 to-transparent">
+                                            <h3 className="text-white font-bold text-lg">#{folder.tag}</h3>
+                                            <p className="text-neutral-300 text-sm">
+                                                {folder.count} post{folder.count !== 1 ? 's' : ''}
+                                            </p>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    {/* Tab: BostCrabb (Coming Soon) */}
+                    <TabsContent value="bostcrabb" className="p-0 m-0">
                         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
                             <Gift className="w-16 h-16 text-orange-500 mb-6" />
-                            <h2 className="text-2xl font-bold text-white mb-3">Fanbox</h2>
+                            <h2 className="text-2xl font-bold text-white mb-3">BostCrabb</h2>
                             <p className="text-neutral-400 max-w-sm">
                                 Want to support your favorite creators? This is for you! Available soon.
                             </p>
                         </div>
                     </TabsContent>
 
-                    {/* Tab 3: Plans (Subscription Tiers placeholder) */}
+                    {/* Tab: Plans */}
                     {profile.is_creator && (
                         <TabsContent value="plans" className="p-6">
                             {plans.length === 0 ? (

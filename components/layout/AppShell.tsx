@@ -181,7 +181,7 @@ export function AppShell({ children }: AppShellProps) {
                     <nav className="flex-1 flex flex-col gap-2">
                         <NavItem href="/" icon={<Home className="w-7 h-7" />} label="Home" active={pathname === '/'} />
                         <NavItem href="/search" icon={<Search className="w-7 h-7" />} label="Search" active={pathname === '/search'} />
-                        <NavItem href="/fanbox" icon={<Box className="w-7 h-7" />} label="Fanbox" active={pathname === '/fanbox'} />
+                        <NavItem href="/fanbox" icon={<Box className="w-7 h-7" />} label="BostCrabb" active={pathname === '/fanbox'} />
                         <NavItem href="/notifications" icon={<Bell className="w-7 h-7" />} label="Notifications" active={pathname === '/notifications'} />
                         <NavItem href={profileHref} icon={<User className="w-7 h-7" />} label="Profile" active={pathname === profileHref} />
                         <NavItem href="/settings" icon={<Settings className="w-7 h-7" />} label="Settings" active={pathname === '/settings'} />
