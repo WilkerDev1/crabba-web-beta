@@ -113,7 +113,7 @@ export default function PlansSettingsPage() {
                         <Card key={plan.id} className="bg-neutral-900 border-neutral-800 p-6 flex justify-between items-start">
                             <div>
                                 <h3 className="text-xl font-bold text-white">{plan.name}</h3>
-                                <div className="text-2xl font-bold text-blue-500 my-2">${plan.price} <span className="text-sm font-normal text-neutral-400">/ month</span></div>
+                                <div className="text-2xl font-bold text-orange-500 my-2">${plan.price} <span className="text-sm font-normal text-neutral-400">/ month</span></div>
                                 <p className="text-neutral-300 text-sm mb-4">{plan.description}</p>
                                 {plan.perks && plan.perks.length > 0 && (
                                     <ul className="text-sm text-neutral-400 space-y-1">
@@ -150,7 +150,7 @@ export default function PlansSettingsPage() {
                                 <Label className="text-white">Perks (Comma separated)</Label>
                                 <Input value={perksText} onChange={e => setPerksText(e.target.value)} placeholder="Discord Access, Work in Progress, HD Downloads" className="bg-black/50 border-neutral-800 text-white" />
                             </div>
-                            <Button type="submit" disabled={saving || !name || !price} className="w-full bg-blue-600 hover:bg-blue-700 font-bold">
+                            <Button type="submit" disabled={saving || !name || !price} className="w-full bg-orange-600 hover:bg-orange-700 font-bold">
                                 {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
                                 Create Plan
                             </Button>

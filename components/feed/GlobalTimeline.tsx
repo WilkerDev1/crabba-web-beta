@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { RefreshCcw, Loader2, Flame, Clock, AlertTriangle } from 'lucide-react';
 
-import { ComposePost } from './ComposePost';
 
 // Public Room ID
 const ROOM_ID = process.env.NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID || '!iyDNoJTahsHwSkiukz:localhost';
@@ -495,14 +494,6 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     // ─── Render ───
     return (
         <div className="divide-y divide-neutral-800">
-            {client && !filterUserId && (
-                <ComposePost
-                    matrixClient={client}
-                    roomId={ROOM_ID}
-                    onPostCreated={handleRefresh}
-                />
-            )}
-
             {showTabs ? (
                 <Tabs
                     value={activeTab}

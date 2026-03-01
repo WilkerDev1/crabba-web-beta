@@ -351,7 +351,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
                         {/* Drag-and-drop hint */}
                         {isDragging && !mediaPreview && (
-                            <div className="flex items-center justify-center h-32 border-2 border-dashed border-blue-500 rounded-xl bg-blue-500/10 text-blue-400 text-sm font-medium">
+                            <div className="flex items-center justify-center h-32 border-2 border-dashed border-orange-500 rounded-xl bg-orange-500/10 text-orange-400 text-sm font-medium">
                                 Suelta tu archivo aquí
                             </div>
                         )}
@@ -385,7 +385,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-blue-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-full"
+                                className="text-orange-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-full"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={isPosting || selectedMedia !== null}
                                 title="Add Image or Video"
@@ -441,7 +441,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                     <Button
                         onClick={handlePost}
                         disabled={(!content.trim() && !selectedMedia) || isPosting || (hasWarning && !warningText.trim())}
-                        className="rounded-full bg-blue-500 hover:bg-blue-600 font-bold px-8"
+                        className="rounded-full bg-orange-600 hover:bg-orange-700 font-bold px-8"
                     >
                         {isPosting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Post'}
                     </Button>

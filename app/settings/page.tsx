@@ -107,7 +107,7 @@ export default function SettingsPage() {
                             value={form.username}
                             onChange={(e) => setForm({ ...form, username: e.target.value })}
                             placeholder="Your display name"
-                            className="bg-neutral-900 border-neutral-800 text-white focus-visible:ring-blue-500"
+                            className="bg-neutral-900 border-neutral-800 text-white focus-visible:ring-orange-500"
                             required
                         />
                     </div>
@@ -119,7 +119,7 @@ export default function SettingsPage() {
                             value={form.bio}
                             onChange={(e) => setForm({ ...form, bio: e.target.value })}
                             placeholder="Tell us about yourself..."
-                            className="bg-neutral-900 border-neutral-800 text-white min-h-[100px] focus-visible:ring-blue-500"
+                            className="bg-neutral-900 border-neutral-800 text-white min-h-[100px] focus-visible:ring-orange-500"
                         />
                     </div>
 
@@ -130,7 +130,7 @@ export default function SettingsPage() {
                             value={form.avatar_url}
                             onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
                             placeholder="https://example.com/avatar.png"
-                            className="bg-neutral-900 border-neutral-800 text-white focus-visible:ring-blue-500"
+                            className="bg-neutral-900 border-neutral-800 text-white focus-visible:ring-orange-500"
                         />
                         <p className="text-xs text-neutral-500">Provide a direct link to a hosted image.</p>
                     </div>
@@ -142,7 +142,7 @@ export default function SettingsPage() {
                             value={form.banner_url}
                             onChange={(e) => setForm({ ...form, banner_url: e.target.value })}
                             placeholder="https://example.com/banner.png"
-                            className="bg-neutral-900 border-neutral-800 text-white focus-visible:ring-blue-500"
+                            className="bg-neutral-900 border-neutral-800 text-white focus-visible:ring-orange-500"
                         />
                         <p className="text-xs text-neutral-500">Recommended size: 1500x500 pixels.</p>
                     </div>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
                     <Button
                         type="submit"
                         disabled={saving}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold"
+                        className="w-full bg-orange-600 hover:bg-orange-700 text-white font-bold"
                     >
                         {saving ? (
                             <>

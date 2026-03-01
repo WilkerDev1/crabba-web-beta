@@ -3,13 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
-import { Home, Compass, Bell, User, Hash, Box, Search, LogOut, Settings, WifiOff, RefreshCcw, Loader2 } from 'lucide-react';
+import { Home, Compass, Bell, User, Box, Search, LogOut, Settings, WifiOff, RefreshCcw, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Card } from '../ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { createClient } from '../../lib/supabase/client';
 import { clearMatrixSession, getMatrixClient, safeStartClient, checkServerHealth, getServerStatus, setBaseUrl, getEffectiveBaseUrl } from '../../lib/matrix';
 import { ComposePostModal } from '../feed/ComposePostModal';
+import { TrendingTopics } from './TrendingTopics';
 
 interface AppShellProps {
     children: React.ReactNode;
@@ -134,7 +134,7 @@ export function AppShell({ children }: AppShellProps) {
                         <button
                             onClick={handleRetry}
                             disabled={retrying}
-                            className="w-full py-3 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-neutral-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors"
+                            className="w-full py-3 rounded-full bg-orange-600 hover:bg-orange-700 disabled:bg-neutral-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-colors"
                         >
                             {retrying ? (
                                 <><Loader2 className="w-4 h-4 animate-spin" /> Verificando...</>
@@ -157,7 +157,7 @@ export function AppShell({ children }: AppShellProps) {
                                     placeholder="https://new-tunnel.trycloudflare.com"
                                     value={newTunnelUrl}
                                     onChange={e => setNewTunnelUrl(e.target.value)}
-                                    className="w-full bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                    className="w-full bg-neutral-800 border border-neutral-600 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
                                 />
                                 <p className="text-neutral-600 text-xs">
                                     Ingresa la nueva URL del túnel y presiona Reintentar.
@@ -189,12 +189,12 @@ export function AppShell({ children }: AppShellProps) {
 
                     <div className="p-2">
                         <ComposePostModal>
-                            <Button className="w-full h-12 rounded-full bg-blue-500 hover:bg-blue-600 text-white font-bold text-lg hidden xl:block">
+                            <Button className="w-full h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white font-bold text-lg hidden xl:block">
                                 Post
                             </Button>
                         </ComposePostModal>
                         <ComposePostModal>
-                            <Button className="w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center xl:hidden mx-auto">
+                            <Button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center xl:hidden mx-auto">
                                 +
                             </Button>
                         </ComposePostModal>
@@ -232,24 +232,17 @@ export function AppShell({ children }: AppShellProps) {
 
                 {/* Right Sidebar - Trending (hidden below xl) */}
                 <aside className="hidden xl:block w-80 pl-8 py-4 sticky top-0 h-screen">
-                    <div className="bg-neutral-900 rounded-full flex items-center px-4 py-2 mb-6 focus-within:ring-1 ring-blue-500">
+                    <form action="/search" method="GET" className="bg-neutral-900 rounded-full flex items-center px-4 py-2 mb-6 focus-within:ring-1 ring-orange-500">
                         <Search className="w-4 h-4 text-neutral-500 mr-2" />
                         <input
                             type="text"
+                            name="q"
                             placeholder="Search Crabba"
                             className="bg-transparent border-none focus:outline-none text-white placeholder-neutral-500 w-full"
                         />
-                    </div>
+                    </form>
 
-                    <Card className="bg-neutral-900 border-none p-4 rounded-xl mb-4">
-                        <h2 className="font-bold text-xl mb-4 text-white">Trending Creators</h2>
-                        <div className="flex flex-col gap-4">
-                            <TrendingItem tag="Art" count="12.5k" />
-                            <TrendingItem tag="Music" count="8.2k" />
-                            <TrendingItem tag="Gaming" count="5.1k" />
-                            <TrendingItem tag="Tech" count="2.3k" />
-                        </div>
-                    </Card>
+                    <TrendingTopics />
                 </aside>
             </div>
 
@@ -260,7 +253,7 @@ export function AppShell({ children }: AppShellProps) {
 
                 {/* Floating Compose Button */}
                 <ComposePostModal>
-                    <button className="w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/30 -mt-5 text-2xl font-light active:scale-95 transition-transform">
+                    <button className="w-12 h-12 rounded-full bg-orange-600 hover:bg-orange-700 text-white flex items-center justify-center shadow-lg shadow-orange-600/30 -mt-5 text-2xl font-light active:scale-95 transition-transform">
                         +
                     </button>
                 </ComposePostModal>
@@ -294,16 +287,4 @@ function MobileNavItem({ href, icon, active = false }: { href: string; icon: Rea
             {icon}
         </Link>
     );
-}
-
-function TrendingItem({ tag, count }: { tag: string; count: string }) {
-    return (
-        <div className="flex justify-between items-center cursor-pointer hover:bg-neutral-800/50 p-2 rounded transition-colors">
-            <div>
-                <p className="font-bold text-white">#{tag}</p>
-                <p className="text-xs text-neutral-500">{count} posts</p>
-            </div>
-            <Hash className="w-4 h-4 text-neutral-500" />
-        </div>
-    )
 }

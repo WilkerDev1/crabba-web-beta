@@ -193,7 +193,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
             if (part.startsWith('#')) {
                 const tag = part.substring(1);
                 return (
-                    <Link key={i} href={`/search?q=%23${tag}`} onClick={e => e.stopPropagation()} className="text-blue-500 hover:underline">
+                    <Link key={i} href={`/search?q=%23${tag}`} onClick={e => e.stopPropagation()} className="text-orange-500 hover:underline">
                         {part}
                     </Link>
                 );
@@ -432,15 +432,15 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                             {isDetailView ? (
                                 <ComposePostModal replyToEventId={targetEventId} defaultRoomId={roomId} onPostCreated={() => { }}>
                                     <div onClick={e => e.stopPropagation()}>
-                                        <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-blue-500" bg="group-hover:bg-blue-500/10" />
+                                        <ActionIcon icon={<MessageSquare className="w-4 h-4" />} count={replyCount} color="group-hover:text-orange-500" bg="group-hover:bg-orange-500/10" />
                                     </div>
                                 </ComposePostModal>
                             ) : (
                                 <ActionIcon
                                     icon={<MessageSquare className="w-4 h-4" />}
                                     count={replyCount}
-                                    color="group-hover:text-blue-500"
-                                    bg="group-hover:bg-blue-500/10"
+                                    color="group-hover:text-orange-500"
+                                    bg="group-hover:bg-orange-500/10"
                                     onClick={() => router.push(`/post/${targetEventId}`)}
                                 />
                             )}
@@ -460,8 +460,8 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                             />
                             <ActionIcon
                                 icon={copied ? <Share className="w-4 h-4 text-green-400" /> : <Share className="w-4 h-4" />}
-                                color={copied ? "text-green-400" : "group-hover:text-blue-500"}
-                                bg="group-hover:bg-blue-500/10"
+                                color={copied ? "text-green-400" : "group-hover:text-orange-500"}
+                                bg="group-hover:bg-orange-500/10"
                                 onClick={() => {
                                     const url = `${window.location.origin}/post/${targetEventId}`;
                                     navigator.clipboard.writeText(url).then(() => {

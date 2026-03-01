@@ -79,7 +79,7 @@ export function ComposePost({ matrixClient, roomId, onPostCreated }: ComposePost
                         onChange={(e) => setContent(e.target.value)}
                     />
                     <div className="flex justify-between items-center border-t border-neutral-800 pt-3">
-                        <div className="flex gap-2 text-blue-500">
+                        <div className="flex gap-2 text-orange-500">
                             <input
                                 type="file"
                                 ref={fileInputRef}
@@ -90,7 +90,7 @@ export function ComposePost({ matrixClient, roomId, onPostCreated }: ComposePost
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-blue-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-full"
+                                className="text-orange-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-full"
                                 onClick={() => fileInputRef.current?.click()}
                                 disabled={isPosting}
                             >
@@ -100,7 +100,7 @@ export function ComposePost({ matrixClient, roomId, onPostCreated }: ComposePost
                         <Button
                             onClick={handlePost}
                             disabled={!content.trim() || isPosting}
-                            className="rounded-full bg-blue-500 hover:bg-blue-600 font-bold px-6"
+                            className="rounded-full bg-orange-600 hover:bg-orange-700 font-bold px-6"
                         >
                             {isPosting ? <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Uploading...</> : 'Post'}
                         </Button>

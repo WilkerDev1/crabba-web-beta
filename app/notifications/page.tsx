@@ -262,7 +262,7 @@ function NotificationRow({ notif }: { notif: Notification }) {
     const iconMap = {
         LIKE: { Icon: Heart, color: 'text-pink-500', action: 'liked your post' },
         REPOST: { Icon: Repeat, color: 'text-green-500', action: 'reposted your post' },
-        REPLY: { Icon: MessageSquare, color: 'text-blue-500', action: 'replied to your post' },
+        REPLY: { Icon: MessageSquare, color: 'text-orange-500', action: 'replied to your post' },
         FOLLOW: { Icon: UserPlus, color: 'text-orange-500', action: 'followed you' },
     };
 
