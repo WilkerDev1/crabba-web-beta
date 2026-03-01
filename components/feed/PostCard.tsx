@@ -11,7 +11,6 @@ import { ComposePostModal } from '@/components/feed/ComposePostModal';
 import { LockedContentOverlay } from '@/components/feed/LockedContentOverlay';
 import { ImageLightbox } from '@/components/ui/ImageLightbox';
 import { MatrixMedia } from '@/components/feed/MatrixMedia';
-import { getMediaUrl } from '@/lib/media';
 
 interface PostCardProps {
     event: any; // Using any for Matrix Event temporarily, strictly should be MatrixEvent
@@ -88,7 +87,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const hasImage = !!(isImageMsg || isImageFile) && !!content.url;
 
     const isVideoMsg = content.msgtype === 'm.video';
-    const videoUrl = isVideoMsg ? getMediaUrl(content.url) : null;
+    const hasVideo = isVideoMsg && !!content.url;
 
     useEffect(() => {
         if (!matrixClient || !roomId || !eventId || isNested) return;
@@ -388,14 +387,13 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         </div>
                     )}
 
-                    {/* Video Attachment */}
-                    {!isRepost && videoUrl && (
+                    {/* Video Attachment — authenticated blob fetch */}
+                    {!isRepost && hasVideo && (
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
-                            <video
-                                src={videoUrl}
-                                controls
+                            <MatrixMedia
+                                mxcUrl={content.url}
+                                isVideo
                                 className={`w-full rounded-xl transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none pointer-events-none' : ''}`}
-                                preload="metadata"
                                 onClick={(e) => e.stopPropagation()}
                             />
                             {isLocked && (

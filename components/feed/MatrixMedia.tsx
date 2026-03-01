@@ -6,6 +6,7 @@ interface MatrixMediaProps {
     mxcUrl: string;
     alt?: string;
     className?: string;
+    isVideo?: boolean;
     onBlobReady?: (blobUrl: string) => void;
     onClick?: (e: React.MouseEvent) => void;
 }
@@ -15,7 +16,7 @@ interface MatrixMediaProps {
  * and renders it as an Object URL blob. This bypasses 404s from unauthenticated
  * media endpoints that modern Synapse versions enforce.
  */
-export function MatrixMedia({ mxcUrl, alt, className, onBlobReady, onClick }: MatrixMediaProps) {
+export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobReady, onClick }: MatrixMediaProps) {
     const [imgSrc, setImgSrc] = useState<string | null>(null);
     const [error, setError] = useState(false);
 
@@ -61,7 +62,7 @@ export function MatrixMedia({ mxcUrl, alt, className, onBlobReady, onClick }: Ma
     if (error) {
         return (
             <div className="p-4 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-500 text-sm text-center">
-                Imagen no disponible
+                Contenido no disponible
             </div>
         );
     }
@@ -69,6 +70,19 @@ export function MatrixMedia({ mxcUrl, alt, className, onBlobReady, onClick }: Ma
     if (!imgSrc) {
         return (
             <div className="h-48 w-full bg-zinc-900 animate-pulse rounded-xl" />
+        );
+    }
+
+    if (isVideo) {
+        return (
+            <video
+                src={imgSrc}
+                controls
+                playsInline
+                preload="metadata"
+                className={className}
+                onClick={onClick}
+            />
         );
     }
 
