@@ -32,17 +32,26 @@ export async function updateSession(request: NextRequest) {
         data: { user },
     } = await supabase.auth.getUser()
 
-    const isPublicRoute = request.nextUrl.pathname.startsWith('/login') || request.nextUrl.pathname.startsWith('/register');
+    const pathname = request.nextUrl.pathname;
+
+    // ─── PUBLIC ROUTES: accessible without authentication ───
+    const isAuthRoute = pathname.startsWith('/login') || pathname.startsWith('/register');
+    const isLandingPage = pathname === '/';
+    const isPostDetail = pathname.startsWith('/post/');
+    // Catch-all: any single-segment path like /username is a profile page
+    const isProfilePage = /^\/[^/]+$/.test(pathname) && !isAuthRoute && !pathname.startsWith('/api') && !pathname.startsWith('/fanbox') && !pathname.startsWith('/search') && !pathname.startsWith('/notifications') && !pathname.startsWith('/settings');
+
+    const isPublicRoute = isAuthRoute || isLandingPage || isPostDetail || isProfilePage;
 
     if (!user && !isPublicRoute) {
-        // no user on a private route, potentially redirect to login
+        // no user on a private route → redirect to landing page
         const url = request.nextUrl.clone()
-        url.pathname = '/login'
+        url.pathname = '/'
         return NextResponse.redirect(url)
     }
 
-    if (user && isPublicRoute) {
-        // user already logged in but trying to access login/register, redirect to home
+    if (user && isAuthRoute) {
+        // user already logged in but trying to access login/register → redirect to home
         const url = request.nextUrl.clone()
         url.pathname = '/'
         return NextResponse.redirect(url)
