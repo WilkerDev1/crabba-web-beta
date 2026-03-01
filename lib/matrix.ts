@@ -55,6 +55,41 @@ export const setBaseUrl = (url: string): void => {
 };
 
 /**
+ * Obtain a temporary guest access token for read-only browsing.
+ * Registers via /_matrix/client/v3/register?kind=guest and caches
+ * in sessionStorage (dies when tab closes) to prevent DB bloat.
+ */
+export async function getGuestToken(baseUrl?: string): Promise<string> {
+    // 1. Check sessionStorage cache first
+    if (typeof window !== 'undefined') {
+        const stored = sessionStorage.getItem('matrix_guest_token');
+        if (stored) return stored;
+    }
+
+    // 2. Register a new temporary guest
+    const effectiveUrl = baseUrl || getEffectiveBaseUrl();
+    const res = await fetch(`${effectiveUrl}/_matrix/client/v3/register?kind=guest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    });
+
+    if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`Failed to register Matrix guest: ${res.status} ${errText}`);
+    }
+
+    const data = await res.json();
+
+    // 3. Cache in sessionStorage
+    if (typeof window !== 'undefined' && data.access_token) {
+        sessionStorage.setItem('matrix_guest_token', data.access_token);
+    }
+
+    return data.access_token;
+}
+
+/**
  * Ping /_matrix/client/versions to verify the homeserver is reachable.
  * Returns true if healthy, false if unreachable.
  */
