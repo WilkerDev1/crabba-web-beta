@@ -11,7 +11,7 @@ const supabaseAdmin = createClient(
 const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
 const MATRIX_HOMESERVER = rawMatrixUrl ? rawMatrixUrl.replace(/\/+$/, '') : '';
 const isNgrok = MATRIX_HOMESERVER.includes('ngrok-free.app') || MATRIX_HOMESERVER.includes('ngrok-free.dev') || MATRIX_HOMESERVER.includes('ngrok.io');
-const MATRIX_DOMAIN = process.env.NEXT_PUBLIC_MATRIX_DOMAIN || 'localhost'
+const MATRIX_DOMAIN = process.env.NEXT_PUBLIC_MATRIX_DOMAIN || 'crabba.net'
 
 export async function POST(request: Request) {
     try {
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
         // 1. Generate Matrix User ID
         // Matrix User IDs are in the format @localpart:domain
-        // e.g., @user_1234abcd:localhost
+        // e.g., @user_1234abcd:crabba.net
         const localpart = `user_${uuid.replace(/-/g, '')}`
         const matrixUserId = `@${localpart}:${MATRIX_DOMAIN}`
 
@@ -88,50 +88,56 @@ export async function POST(request: Request) {
             if (!registerRes.ok) {
                 const errorData = await registerRes.json()
                 console.error(`[Identity Bridge] Synapse Reg Error:`, errorData);
-                // Hard fail to prevent broken state
-                throw new Error(`Matrix Registration Failed: ${errorData.error || 'Unknown error'}`);
-            }
 
-            console.log(`[Identity Bridge] Successfully registered Matrix user: ${matrixUserId}`);
+                // If user already exists on the new domain, that's OK — just update the password
+                if (errorData.errcode === 'M_USER_IN_USE') {
+                    console.log(`[Identity Bridge] User ${matrixUserId} already exists on ${MATRIX_DOMAIN}. Proceeding with credential update.`);
+                } else {
+                    throw new Error(`Matrix Registration Failed: ${errorData.error || 'Unknown error'}`);
+                }
+            } else {
+                console.log(`[Identity Bridge] Successfully registered Matrix user: ${matrixUserId}`);
+            }
 
         } catch (matrixError: any) {
             console.error(`[Identity Bridge] Failed to register Matrix identity:`, matrixError.message);
-            // ROLLBACK: Return 500 so the frontend sees failure and can tell the user. 
-            // In a better system we would delete the Supabase Auth user just created.
             return NextResponse.json({ error: 'Identity auto-provisioning failed.' }, { status: 500 })
         }
 
         // 3. Link Supabase UUID with Matrix User ID in the profiles table
+        // Use UPSERT to handle migration from :localhost → :crabba.net
         console.log(`[Identity Bridge] Linking Supabase UUID ${uuid} with Matrix User ID ${matrixUserId}...`);
 
         const { error: profileError } = await supabaseAdmin
             .from('profiles')
-            .insert([
+            .upsert(
                 {
                     id: uuid,
                     matrix_user_id: matrixUserId,
-                    username: email.split('@')[0], // Default username to part of email
-                    avatar_url: null,
-                }
-            ])
+                    username: email.split('@')[0],
+                },
+                { onConflict: 'id' }
+            )
 
         if (profileError) {
-            console.error(`[Identity Bridge] Supabase Profile Insert Error:`, profileError)
-            return NextResponse.json({ error: 'Failed to create user profile linking.' }, { status: 500 })
+            console.error(`[Identity Bridge] Supabase Profile Upsert Error:`, profileError)
+            return NextResponse.json({ error: 'Failed to create/update user profile linking.' }, { status: 500 })
         }
 
         // 4. Store the auto-generated Matrix password in matrix_credentials
+        // Use UPSERT to handle migration case where old credentials exist
         const { error: credsError } = await supabaseAdmin
             .from('matrix_credentials')
-            .insert([
+            .upsert(
                 {
                     user_id: uuid,
                     matrix_password: matrixPassword
-                }
-            ])
+                },
+                { onConflict: 'user_id' }
+            )
 
         if (credsError) {
-            console.error(`[Identity Bridge] Matrix Credentials Insert Error:`, credsError)
+            console.error(`[Identity Bridge] Matrix Credentials Upsert Error:`, credsError)
             return NextResponse.json({ error: 'Failed to store Matrix credentials.' }, { status: 500 })
         }
 
