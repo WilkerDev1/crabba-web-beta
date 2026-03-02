@@ -30,6 +30,7 @@ export default function RegisterPage() {
     const [email, setEmail] = useState('')
     const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
+    const [inviteCode, setInviteCode] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [waitlisted, setWaitlisted] = useState(false)
@@ -47,7 +48,56 @@ export default function RegisterPage() {
             return;
         }
 
-        // ─── CLOSED BETA: Intercept sign-up → insert into waitlist ───
+        // ─── INVITE CODE BYPASS LOGIC ───
+        if (inviteCode.trim()) {
+            const code = inviteCode.trim().toUpperCase()
+
+            // 1. Verify code
+            const { data: codeData, error: codeError } = await supabase
+                .from('invite_codes')
+                .select('*')
+                .eq('code', code)
+                .single()
+
+            if (codeError || !codeData || codeData.is_used) {
+                setError('Invalid or already used invite code.')
+                setLoading(false)
+                return
+            }
+
+            // 2. Register real account
+            const { error: signUpError } = await supabase.auth.signUp({
+                email,
+                password,
+                options: {
+                    data: {
+                        username: username,
+                        invited_by_code: code
+                    }
+                }
+            })
+
+            if (signUpError) {
+                setError(signUpError.message)
+                setLoading(false)
+                return
+            }
+
+            // 3. Mark code as used
+            await supabase
+                .from('invite_codes')
+                .update({
+                    is_used: true,
+                    used_by_email: email
+                })
+                .eq('code', code)
+
+            // Success! The Matrix account creation will be handled by Supabase triggers/webhook
+            router.push('/explore')
+            return
+        }
+
+        // ─── REGULAR WAITLIST LOGIC (No Invite Code) ───
         try {
             const { error: insertError } = await supabase
                 .from('waitlist')
@@ -155,11 +205,21 @@ export default function RegisterPage() {
                                 onChange={(e) => setPassword(e.target.value)}
                             />
                         </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="inviteCode">VIP Invite Code (Optional)</Label>
+                            <Input
+                                id="inviteCode"
+                                type="text"
+                                placeholder="CRAB-XXXXXXXX"
+                                value={inviteCode}
+                                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                            />
+                        </div>
                         {error && (
                             <div className="text-sm text-red-500">{error}</div>
                         )}
                         <Button type="submit" className="w-full" disabled={loading}>
-                            {loading ? 'Joining waitlist...' : 'Join Waitlist'}
+                            {loading ? 'Processing...' : inviteCode.trim() ? 'Create VIP Account' : 'Join Waitlist'}
                         </Button>
                         <p className="text-xs text-center text-muted-foreground">
                             🦀 Closed Beta — your email will be added to our invite list
