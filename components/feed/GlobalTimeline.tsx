@@ -65,6 +65,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         // Only set loading on first load to avoid flickering on refresh
         if (events.length === 0) setLoading(true);
         setError(null);
+        let shouldKeepLoading = false; // Flag to gracefully bypass setting hard errors during auth recovery
+
         try {
             let matrixClient = getSharedClient();
             if (!matrixClient) {
@@ -149,8 +151,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
                     setEvents(wrappedEvents);
                     setHasMore(false); // Guests get one page
-                } catch (guestErr) {
+                } catch (guestErr: any) {
                     console.error('[GlobalTimeline] Guest fetch error:', guestErr);
+
+                    const isAuthError = guestErr?.message?.includes('401') || guestErr?.message?.includes('token');
+                    if (isAuthError) {
+                        console.warn("[GlobalTimeline] Guest token invalid. Waiting for auto-recovery...");
+                        shouldKeepLoading = true;
+                        return;
+                    }
                     setError('Could not load public timeline. The room may not be world-readable.');
                 }
             } else {
@@ -217,8 +226,16 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         const errCode = joinError?.data?.errcode || joinError?.errcode || '';
                         const errMsg = joinError?.data?.error || joinError?.message || String(joinError);
                         console.error(`[GlobalTimeline] Failed to join room:`, errCode, errMsg);
+
+                        // If it's an auth error or token error, skip the noisy screen and wait for background sync
+                        if (errCode === 'M_UNKNOWN_TOKEN' || errMsg.toLowerCase().includes('token') || errCode === 'M_GUEST_ACCESS_FORBIDDEN' || errCode === 'M_FORBIDDEN') {
+                            console.warn("[GlobalTimeline] Auth token invalid or forbidden down sync. Waiting for auto-recovery...");
+                            shouldKeepLoading = true;
+                            setLoadingMessage(null);
+                            return;
+                        }
+
                         setRoomError(`${errCode ? errCode + ': ' : ''}${errMsg}`);
-                        setLoading(false);
                         setLoadingMessage(null);
                         return;
                     }
@@ -287,14 +304,21 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
         } catch (err: any) {
             console.error('Error fetching messages:', err);
-            if (err.isFatal || err.message?.includes('FatalAuthError')) {
-                setError(`Authentication Failed: ${err.message}. Please check .env.local credentials.`);
-                setLoading(false);
+
+            const errCode = err?.data?.errcode || err?.errcode || '';
+            const errMsg = err?.message || String(err);
+
+            if (err.isFatal || errMsg.includes('FatalAuthError') || errCode === 'M_UNKNOWN_TOKEN' || errMsg.toLowerCase().includes('token')) {
+                console.warn("[GlobalTimeline] Auth token likely invalid, waiting for background auto-recovery...");
+                shouldKeepLoading = true;
                 return;
             }
-            setError(err.message || 'Failed to load feed');
+
+            setError(errMsg || 'Failed to load feed');
         } finally {
-            setLoading(false);
+            if (!shouldKeepLoading) {
+                setLoading(false);
+            }
         }
     };
 

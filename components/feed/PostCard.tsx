@@ -25,10 +25,6 @@ interface PostCardProps {
 export function PostCard({ event, matrixClient, isNested = false, isDetailView = false, isLastInThread = false, showThreadLine = false, hasChildren = false }: PostCardProps) {
     const router = useRouter();
 
-    // ─── SAFETY: Bail early for redacted, malformed, or redaction-type events ───
-    if (!event || typeof event.getContent !== 'function') return null;
-    if (event.isRedacted?.() || event.getType?.() === 'm.room.redaction') return null;
-
     const [liked, setLiked] = useState<boolean>(false);
     const [likeCount, setLikeCount] = useState<number>(0);
     const [replyCount, setReplyCount] = useState<number>(0);
@@ -41,17 +37,25 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
     const [blobUrl, setBlobUrl] = useState<string | null>(null);
     const [isWarningRevealed, setIsWarningRevealed] = useState<boolean>(false);
+    const [originalEvent, setOriginalEvent] = useState<any>(null);
+    const [fetchingOriginal, setFetchingOriginal] = useState(false);
+    const [replyToProfile, setReplyToProfile] = useState<{ username: string, senderId: string } | null>(null);
+    const [copied, setCopied] = useState(false);
 
-    const content = event.getContent() || {};
-    const senderId = event.getSender() || '';
-    const timestamp = event.getTs();
-    const eventId = event.getId();
-    const roomId = event.getRoomId();
+    // ─── SAFETY: Bail logic mapped out before any early returns ───
+    const isMalformed = !event || typeof event.getContent !== 'function';
+    const isRedaction = !isMalformed && (event.isRedacted?.() || event.getType?.() === 'm.room.redaction');
+    const shouldBail = isMalformed || isRedaction;
 
-    // If content is completely empty (redacted mid-render or malformed), bail
+    const content = shouldBail ? {} : (event.getContent() || {});
+    const senderId = shouldBail ? '' : (event.getSender() || '');
+    const timestamp = shouldBail ? 0 : (event.getTs() || 0);
+    const eventId = shouldBail ? '' : (event.getId() || '');
+    const roomId = shouldBail ? '' : (event.getRoomId() || '');
+
     const body = content?.body;
     const msgtype = content?.msgtype;
-    if (!body && !msgtype && !content?.url) return null;
+    const isContentEmpty = !body && !msgtype && !content?.url;
 
     const relatesTo = content['m.relates_to'];
     // Strict evaluation of reference relations to avoid catching normal threaded replies
@@ -63,7 +67,6 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
     // Threading logic
     const inReplyToId = relatesTo?.['m.in_reply_to']?.event_id;
-    const isThreadReply = relatesTo?.rel_type === 'm.thread';
     const hasParent = !!inReplyToId;
 
     const accessLevel = content['access_level'] || 'public';
@@ -73,11 +76,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const showWarningOverlay = hasWarning && !isWarningRevealed && !isLocked;
     const price = content['price'] as number | undefined;
 
-    const [originalEvent, setOriginalEvent] = useState<any>(null);
-    const [fetchingOriginal, setFetchingOriginal] = useState(false);
-    const [replyToProfile, setReplyToProfile] = useState<{ username: string, senderId: string } | null>(null);
-
-    const { profile, loading } = useMatrixProfile(senderId);
+    const { profile } = useMatrixProfile(senderId);
 
     // Use profile data if available, fallback to Matrix ID
     const senderName = profile?.username || senderId;
@@ -281,11 +280,11 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         }
     };
 
-    if (isDeleted) return null;
-
-    const myUserId = matrixClient?.getUserId();
+    const myUserId = matrixClient?.getUserId?.() || '';
     const canDelete = myUserId === senderId;
-    const [copied, setCopied] = useState(false);
+
+    // Execute bails AFTER all hooks have been called
+    if (shouldBail || isContentEmpty || isDeleted) return null;
 
     const handleCardClick = (e: React.MouseEvent) => {
         const target = e.target as HTMLElement;

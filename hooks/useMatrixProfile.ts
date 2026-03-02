@@ -15,11 +15,10 @@ const profileCache: Record<string, Promise<ProfileData | null>> = {};
 
 export function useMatrixProfile(matrixUserId: string) {
     const [profile, setProfile] = useState<ProfileData | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(!!matrixUserId);
 
     useEffect(() => {
         if (!matrixUserId) {
-            setLoading(false);
             return;
         }
 
