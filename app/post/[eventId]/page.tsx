@@ -123,9 +123,7 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
             images: seoImageUrl ? [
                 {
                     url: seoImageUrl,
-                    width: 1200,
-                    height: 630,
-                    alt: 'Post image',
+                    alt: 'Art content',
                 },
             ] : [],
         },
