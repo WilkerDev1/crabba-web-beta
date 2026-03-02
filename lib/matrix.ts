@@ -457,14 +457,15 @@ export const sendEventWithRetry = async (
     }
 };
 
-/**
- * Safely start the Matrix sync client. Uses a promise-based lock to prevent
- * duplicate startClient calls from concurrent React renders or HMR.
- * Auto-heals corrupted IndexedDB stores (prepareLazyLoadingForSync crash).
- */
 export const safeStartClient = async (client: MatrixClient): Promise<void> => {
     // If already running, skip
     if (globalForMatrix.clientStarted && client.clientRunning) {
+        return;
+    }
+
+    // Do not sync if guest
+    if (typeof window !== 'undefined' && client.getAccessToken() === sessionStorage.getItem('matrix_guest_token')) {
+        console.warn('⚠️ safeStartClient aborted: Matrix instance is a guest. Guests should not sync.');
         return;
     }
 

@@ -24,17 +24,23 @@ export function ComposePost({ matrixClient, roomId, onPostCreated }: ComposePost
             const mediaArray: Array<{ url: string; type: string; info: any }> = [];
 
             if (mediaFiles.length > 0) {
-                // Upload all files concurrently
+                // Upload all files concurrently with individual error handling
                 const uploadPromises = mediaFiles.map(async (file) => {
-                    const response = await matrixClient.uploadContent(file);
-                    return {
-                        url: response.content_uri,
-                        type: file.type,
-                        info: { mimetype: file.type, size: file.size }
-                    };
+                    try {
+                        const response = await matrixClient.uploadContent(file);
+                        return {
+                            url: response.content_uri,
+                            type: file.type,
+                            info: { mimetype: file.type, size: file.size }
+                        };
+                    } catch (err) {
+                        console.error('Failed to upload file:', file.name, err);
+                        return null; // Don't reject Promise.all
+                    }
                 });
                 const results = await Promise.all(uploadPromises);
-                mediaArray.push(...results);
+                const successfulUploads = results.filter(Boolean) as Array<{ url: string; type: string; info: any }>;
+                mediaArray.push(...successfulUploads);
             }
 
             // Construct payload

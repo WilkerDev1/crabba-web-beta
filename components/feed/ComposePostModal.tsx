@@ -355,16 +355,29 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
                 try {
                     const uploadPromises = mediaFiles.map(async (file) => {
-                        if (file.size === 0) throw new Error("Empty file detected");
-                        const response = await matrixClient.uploadContent(file);
-                        return {
-                            url: response.content_uri,
-                            type: file.type,
-                            info: { mimetype: file.type, size: file.size }
-                        };
+                        if (file.size === 0) {
+                            console.warn("Empty file detected, skipping:", file.name);
+                            return null;
+                        }
+                        try {
+                            const response = await matrixClient.uploadContent(file);
+                            return {
+                                url: response.content_uri,
+                                type: file.type,
+                                info: { mimetype: file.type, size: file.size }
+                            };
+                        } catch (err) {
+                            console.error("Failed to upload file:", file.name, err);
+                            return null;
+                        }
                     });
                     const results = await Promise.all(uploadPromises);
-                    mediaArray.push(...results);
+                    const successfulUploads = results.filter(Boolean) as Array<{ url: string; type: string; info: any }>;
+
+                    if (successfulUploads.length === 0) {
+                        throw new Error("All media uploads failed.");
+                    }
+                    mediaArray.push(...successfulUploads);
                 } catch (err) {
                     alert("Error: Falló la subida de medios. Por favor intenta de nuevo.");
                     setIsPosting(false);

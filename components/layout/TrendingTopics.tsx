@@ -36,21 +36,22 @@ export function TrendingTopics() {
                     events = timeline.getEvents();
                 }
             } else {
-                // Guest route: Fetch directly via HTTP
+                // Fetch directly via unauthenticated HTTP to avoid guest sync issues
                 try {
                     const baseUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || 'https://matrix.crabba.net';
                     const encodedRoomId = encodeURIComponent(ROOM_ID);
-                    // Use guestFetch from our matrix auth lib if available, or fetch directly
-                    const { guestFetch } = await import('@/lib/matrix');
-                    const data = await guestFetch(baseUrl, `/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=100`);
-                    if (data && data.chunk) {
-                        events = data.chunk.map((ev: { type: string; content?: Record<string, unknown> }) => ({
-                            getType: () => ev.type,
-                            getContent: () => ev.content || {}
-                        }));
+                    const res = await fetch(`${baseUrl}/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=100`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data && data.chunk) {
+                            events = data.chunk.map((ev: { type: string; content?: Record<string, unknown> }) => ({
+                                getType: () => ev.type,
+                                getContent: () => ev.content || {}
+                            }));
+                        }
                     }
                 } catch (err) {
-                    console.error('Failed to guest-fetch trending tags', err);
+                    console.error('Failed to unauthenticated-fetch trending tags', err);
                 }
             }
 
