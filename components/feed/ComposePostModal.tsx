@@ -186,7 +186,14 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         );
 
         canvas.toBlob((blob) => {
-            if (!blob) return;
+            if (!blob || blob.size === 0) {
+                // Fallback to original file if blob is empty/invalid
+                setMediaType('image');
+                setSelectedMedia(rawFile);
+                setMediaPreview(cropImageSrc);
+                setCropMode(false);
+                return;
+            }
             const croppedFile = new File([blob], rawFile.name, { type: rawFile.type || 'image/jpeg' });
             setMediaType('image');
             setSelectedMedia(croppedFile);
@@ -343,6 +350,11 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
             } else {
                 // Media Upload Flow (Image or Video)
+                if (selectedMedia.size === 0) {
+                    alert("Error: El archivo de imagen está vacío o corrupto. Por favor, intenta subirlo de nuevo.");
+                    setIsPosting(false);
+                    return;
+                }
                 const response = await matrixClient.uploadContent(selectedMedia);
                 const contentUri = response.content_uri;
 
