@@ -59,8 +59,8 @@ export default function RegisterPage() {
                 .eq('code', code)
                 .single()
 
-            if (codeError || !codeData || codeData.is_used) {
-                setError('Invalid or already used invite code.')
+            if (codeError || !codeData || codeData.current_uses >= codeData.max_uses) {
+                setError('This invite code has reached its usage limit or is invalid.')
                 setLoading(false)
                 return
             }
@@ -83,14 +83,8 @@ export default function RegisterPage() {
                 return
             }
 
-            // 3. Mark code as used
-            await supabase
-                .from('invite_codes')
-                .update({
-                    is_used: true,
-                    used_by_email: email
-                })
-                .eq('code', code)
+            // 3. Increment code usage securely via RPC
+            await supabase.rpc('increment_invite_usage', { invite_code: code })
 
             // Success! The Matrix account creation will be handled by Supabase triggers/webhook
             router.push('/explore')

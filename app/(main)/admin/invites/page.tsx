@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase/client';
 import { AppShell } from '@/components/layout/AppShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Loader2, Copy, CheckCircle2, Ticket } from 'lucide-react';
 
 interface WaitlistEntry {
@@ -15,12 +17,27 @@ interface WaitlistEntry {
     status: string;
 }
 
+interface InviteCode {
+    id: string;
+    code: string;
+    is_used: boolean;
+    created_at: string;
+    used_by_email: string | null;
+    max_uses: number;
+    current_uses: number;
+}
+
 export default function AdminInvitesPage() {
     const router = useRouter();
     const supabase = createClient();
     const [loading, setLoading] = useState(true);
-    const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
-    const [generating, setGenerating] = useState<string | null>(null);
+    const [waitlistUsers, setWaitlistUsers] = useState<WaitlistEntry[]>([]);
+    const [inviteCodes, setInviteCodes] = useState<InviteCode[]>([]);
+
+    const [customCodeName, setCustomCodeName] = useState('');
+    const [maxUses, setMaxUses] = useState<number>(1);
+    const [creating, setCreating] = useState(false);
+
     const [copiedId, setCopiedId] = useState<string | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -39,48 +56,72 @@ export default function AdminInvitesPage() {
             }
 
             // Fetch waitlist
-            const { data } = await supabase
+            const { data: waitlistData } = await supabase
                 .from('waitlist')
                 .select('*')
                 .order('created_at', { ascending: false });
 
-            if (data) setWaitlist(data);
+            // Fetch invite codes
+            const { data: inviteData } = await supabase
+                .from('invite_codes')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (waitlistData) {
+                setWaitlistUsers(waitlistData);
+            }
+            if (inviteData) {
+                setInviteCodes(inviteData);
+            }
             setLoading(false);
         };
 
         checkAccessAndLoad();
     }, [router, supabase]);
 
-    const generateCode = async (email: string) => {
-        setGenerating(email);
+    const handleCreateCode = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setCreating(true);
 
-        // Generate random 8 char uppercase alphanumeric string
-        const randomString = Math.random().toString(36).substring(2, 10).toUpperCase();
-        const inviteCode = `CRAB-${randomString}`;
+        const code = customCodeName.trim().toUpperCase() || `CRAB-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
 
         try {
-            const { error } = await supabase
+            const { data, error } = await supabase
                 .from('invite_codes')
-                .insert({ code: inviteCode });
+                .insert({ code, max_uses: maxUses })
+                .select()
+                .single();
 
             if (error) throw error;
 
+            setInviteCodes([data, ...inviteCodes]);
+            setCustomCodeName('');
+            setMaxUses(1);
+
             // Format message
-            const message = `Welcome to Crabba! Use this code to register: ${inviteCode} at https://crabba.net/register`;
+            const message = `Welcome to Crabba! Use this code to register: ${code} at https://crabba.net/register`;
 
             await navigator.clipboard.writeText(message);
-            setCopiedId(email);
+            setCopiedId(code);
             showToast('Invite code generated and copied!', 'success');
 
             // Reset copy icon after 3 seconds
             setTimeout(() => setCopiedId(null), 3000);
 
-        } catch (err) {
+        } catch (err: any) {
             console.error('Failed to generate code:', err);
-            showToast('Failed to generate code. Check console for details.', 'error');
+            showToast(err?.message || 'Failed to generate code.', 'error');
         } finally {
-            setGenerating(null);
+            setCreating(false);
         }
+    };
+
+    const copyCode = async (code: string) => {
+        const message = `Welcome to Crabba! Use this code to register: ${code} at https://crabba.net/register`;
+        await navigator.clipboard.writeText(message);
+        setCopiedId(code);
+        showToast('Code copied!', 'success');
+        setTimeout(() => setCopiedId(null), 3000);
     };
 
     if (loading) {
@@ -103,49 +144,133 @@ export default function AdminInvitesPage() {
             </div>
 
             <div className="p-4 max-w-4xl mx-auto">
-                <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
-                    <div className="p-4 border-b border-neutral-800 bg-neutral-900/50">
-                        <h2 className="font-semibold text-white">Waitlist Queue ({waitlist.length})</h2>
-                        <p className="text-sm text-neutral-400">Generate single-use invite codes for users waiting to join.</p>
+                <Tabs defaultValue="invites" className="w-full">
+                    <div className="flex justify-center mb-6">
+                        <TabsList>
+                            <TabsTrigger value="invites" className="w-32">Invite Codes</TabsTrigger>
+                            <TabsTrigger value="waitlist" className="w-32">Waitlist</TabsTrigger>
+                        </TabsList>
                     </div>
 
-                    {waitlist.length === 0 ? (
-                        <div className="p-8 text-center text-neutral-500">
-                            No one is on the waitlist right now.
-                        </div>
-                    ) : (
-                        <div className="divide-y divide-neutral-800">
-                            {waitlist.map((entry) => (
-                                <div key={entry.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-neutral-800/50 transition-colors">
-                                    <div>
-                                        <div className="font-medium text-white">{entry.email}</div>
-                                        <div className="text-xs text-neutral-500 mt-1">
-                                            Joined: {new Date(entry.created_at).toLocaleDateString()} at {new Date(entry.created_at).toLocaleTimeString()}
-                                        </div>
-                                    </div>
+                    <TabsContent value="invites" className="mt-0 space-y-4">
+                        {/* Creation Form */}
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden p-6">
+                            <h2 className="font-semibold text-white mb-1">Create VIP Invite Code</h2>
+                            <p className="text-sm text-neutral-400 mb-6">Generate custom or random invite codes with usage limits.</p>
 
-                                    <Button
-                                        onClick={() => generateCode(entry.email)}
-                                        disabled={generating === entry.email}
-                                        className={`shrink-0 transition-all ${copiedId === entry.email
-                                            ? 'bg-green-600 hover:bg-green-700 text-white'
-                                            : 'bg-white text-black hover:bg-neutral-200'
-                                            }`}
-                                    >
-                                        {generating === entry.email ? (
-                                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        ) : copiedId === entry.email ? (
-                                            <CheckCircle2 className="w-4 h-4 mr-2" />
-                                        ) : (
-                                            <Copy className="w-4 h-4 mr-2" />
-                                        )}
-                                        {copiedId === entry.email ? 'Copied!' : 'Generate & Copy'}
-                                    </Button>
+                            <form onSubmit={handleCreateCode} className="flex flex-col sm:flex-row gap-4 items-end">
+                                <div className="space-y-2 flex-grow">
+                                    <Label className="text-sm font-medium text-neutral-300">Custom Code Name (Optional)</Label>
+                                    <Input
+                                        placeholder="e.g. CRABBA-BETA"
+                                        value={customCodeName}
+                                        onChange={(e) => setCustomCodeName(e.target.value.toUpperCase())}
+                                        className="bg-neutral-800 border-neutral-700"
+                                    />
                                 </div>
-                            ))}
+                                <div className="space-y-2 w-32 shrink-0">
+                                    <Label className="text-sm font-medium text-neutral-300">Max Uses</Label>
+                                    <Input
+                                        type="number"
+                                        min="1"
+                                        value={maxUses}
+                                        onChange={(e) => setMaxUses(parseInt(e.target.value) || 1)}
+                                        className="bg-neutral-800 border-neutral-700"
+                                        required
+                                    />
+                                </div>
+                                <Button type="submit" disabled={creating} className="w-full sm:w-auto mt-4 sm:mt-0 font-medium">
+                                    {creating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Ticket className="w-4 h-4 mr-2" />}
+                                    Create Code
+                                </Button>
+                            </form>
                         </div>
-                    )}
-                </div>
+
+                        {/* List Area */}
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+                            <div className="p-4 border-b border-neutral-800 bg-neutral-900/50">
+                                <h2 className="font-semibold text-white">Active Codes ({inviteCodes.length})</h2>
+                            </div>
+
+                            {inviteCodes.length === 0 ? (
+                                <div className="p-8 text-center text-neutral-500">
+                                    No invite codes generated yet.
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-neutral-800">
+                                    {inviteCodes.map((invite) => {
+                                        const isExhausted = invite.current_uses >= invite.max_uses;
+
+                                        return (
+                                            <div key={invite.id} className={`p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors ${isExhausted ? 'opacity-50 bg-neutral-900/40' : 'hover:bg-neutral-800/50'}`}>
+                                                <div>
+                                                    <div className="font-medium text-white font-mono text-lg">{invite.code}</div>
+                                                    <div className="text-xs text-neutral-500 mt-1">
+                                                        Created: {new Date(invite.created_at).toLocaleDateString()}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-6">
+                                                    {/* Usage Stats (Current / Max) */}
+                                                    <div className="text-right shrink-0">
+                                                        <div className="text-xs text-neutral-500">Usage</div>
+                                                        <div className={`font-semibold ${isExhausted ? 'text-red-400' : 'text-green-400'}`}>
+                                                            {invite.current_uses} / {invite.max_uses}
+                                                        </div>
+                                                    </div>
+
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => copyCode(invite.code)}
+                                                        className={`shrink-0 transition-all ${copiedId === invite.code
+                                                            ? 'bg-green-600 hover:bg-green-700 text-white border-green-600'
+                                                            : 'bg-neutral-800 hover:bg-neutral-700 text-white border-neutral-700'
+                                                            }`}
+                                                    >
+                                                        {copiedId === invite.code ? (
+                                                            <CheckCircle2 className="w-4 h-4 mr-2" />
+                                                        ) : (
+                                                            <Copy className="w-4 h-4 mr-2" />
+                                                        )}
+                                                        {copiedId === invite.code ? 'Copied' : 'Copy'}
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="waitlist" className="mt-0">
+                        <div className="bg-neutral-900 border border-neutral-800 rounded-xl overflow-hidden">
+                            <div className="p-4 border-b border-neutral-800 bg-neutral-900/50">
+                                <h2 className="font-semibold text-white">Waitlist Users ({waitlistUsers.length})</h2>
+                                <p className="text-sm text-neutral-400">View users who have registered on the waitlist.</p>
+                            </div>
+
+                            {waitlistUsers.length === 0 ? (
+                                <div className="p-8 text-center text-neutral-500">
+                                    No users in the waitlist yet.
+                                </div>
+                            ) : (
+                                <div className="divide-y divide-neutral-800">
+                                    {waitlistUsers.map((user) => (
+                                        <div key={user.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-neutral-800/50 transition-colors">
+                                            <div>
+                                                <div className="font-medium text-white">{user.email}</div>
+                                            </div>
+                                            <div className="text-sm text-neutral-500 shrink-0">
+                                                Joined: {new Date(user.created_at).toLocaleDateString()}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </TabsContent>
+                </Tabs>
             </div>
 
             {toast && (
