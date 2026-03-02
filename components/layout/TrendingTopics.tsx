@@ -25,65 +25,69 @@ export function TrendingTopics() {
 
     useEffect(() => {
         const extractHashtags = async () => {
-            let events: { getType: () => string; getContent: () => Record<string, unknown> }[] = [];
-            const client = getSharedClient();
-
-            if (client && client.getRoom(ROOM_ID)) {
-                // Logged-in or active client route
-                const room = client.getRoom(ROOM_ID);
-                const timeline = room?.getLiveTimeline();
-                if (timeline) {
-                    events = timeline.getEvents();
+            try {
+                // Check cache first (2 minute expiration)
+                const cacheStr = sessionStorage.getItem('trending_tags_cache');
+                if (cacheStr) {
+                    try {
+                        const cache = JSON.parse(cacheStr);
+                        if (Date.now() - cache.timestamp < 120_000 && cache.tags?.length > 0) {
+                            setTags(cache.tags);
+                            return;
+                        }
+                    } catch (e) {
+                        // ignore corrupt cache
+                    }
                 }
-            } else {
+
                 // Fetch directly via unauthenticated HTTP to avoid guest sync issues
-                try {
-                    const baseUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || 'https://matrix.crabba.net';
-                    const encodedRoomId = encodeURIComponent(ROOM_ID);
-                    const res = await fetch(`${baseUrl}/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=100`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        if (data && data.chunk) {
-                            events = data.chunk.map((ev: { type: string; content?: Record<string, unknown> }) => ({
-                                getType: () => ev.type,
-                                getContent: () => ev.content || {}
-                            }));
+                const baseUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || 'https://matrix.crabba.net';
+                const encodedRoomId = encodeURIComponent(ROOM_ID);
+                const res = await fetch(`${baseUrl}/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=300`);
+
+                if (!res.ok) {
+                    console.error('Failed to unauthenticated-fetch trending tags', res.status);
+                    return;
+                }
+
+                const data = await res.json();
+                if (!data || !data.chunk) return;
+
+                const events = data.chunk;
+                const freq = new Map<string, number>();
+
+                for (const event of events) {
+                    if (event.type !== 'm.room.message') continue;
+                    const body = (event.content?.body as string) || '';
+
+                    // Extract all #hashtags
+                    const matches = body.match(/#([A-Za-z0-9_]+)/g);
+                    if (matches) {
+                        for (const raw of matches) {
+                            const tag = raw.substring(1); // remove #
+                            if (tag.length < 2) continue; // ignore single-char tags
+                            freq.set(tag, (freq.get(tag) || 0) + 1);
                         }
                     }
-                } catch (err) {
-                    console.error('Failed to unauthenticated-fetch trending tags', err);
                 }
-            }
 
-            if (!events || events.length === 0) return;
+                // Sort descending by count, take top 5
+                const sorted = [...freq.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([tag, count]) => ({ tag, count }));
 
-            const freq = new Map<string, number>();
-
-            for (const event of events) {
-                if (event.getType() !== 'm.room.message') continue;
-                const body = (event.getContent()?.body as string) || '';
-
-                // Extract all #hashtags
-                const matches = body.match(/#([A-Za-z0-9_]+)/g);
-                if (matches) {
-                    for (const raw of matches) {
-                        const tag = raw.substring(1); // remove #
-                        if (tag.length < 2) continue; // ignore single-char tags
-                        freq.set(tag, (freq.get(tag) || 0) + 1);
-                    }
+                if (sorted.length > 0) {
+                    setTags(sorted);
+                    // Update cache
+                    sessionStorage.setItem('trending_tags_cache', JSON.stringify({
+                        timestamp: Date.now(),
+                        tags: sorted
+                    }));
                 }
+            } catch (err) {
+                console.error('Error in trending tags extraction:', err);
             }
-
-            // Sort descending by count, take top 5
-            const sorted = [...freq.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5)
-                .map(([tag, count]) => ({ tag, count }));
-
-            if (sorted.length > 0) {
-                setTags(sorted);
-            }
-            // else keep fallbacks
         };
 
         extractHashtags();
