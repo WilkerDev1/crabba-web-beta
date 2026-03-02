@@ -24,21 +24,43 @@ export function TrendingTopics() {
     const [tags, setTags] = useState<TagCount[]>(FALLBACK_TAGS);
 
     useEffect(() => {
-        const extractHashtags = () => {
+        const extractHashtags = async () => {
+            let events: { getType: () => string; getContent: () => Record<string, unknown> }[] = [];
             const client = getSharedClient();
-            if (!client) return;
 
-            const room = client.getRoom(ROOM_ID);
-            if (!room) return;
+            if (client && client.getRoom(ROOM_ID)) {
+                // Logged-in or active client route
+                const room = client.getRoom(ROOM_ID);
+                const timeline = room?.getLiveTimeline();
+                if (timeline) {
+                    events = timeline.getEvents();
+                }
+            } else {
+                // Guest route: Fetch directly via HTTP
+                try {
+                    const baseUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || 'https://matrix.crabba.net';
+                    const encodedRoomId = encodeURIComponent(ROOM_ID);
+                    // Use guestFetch from our matrix auth lib if available, or fetch directly
+                    const { guestFetch } = await import('@/lib/matrix');
+                    const data = await guestFetch(baseUrl, `/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=100`);
+                    if (data && data.chunk) {
+                        events = data.chunk.map((ev: { type: string; content?: Record<string, unknown> }) => ({
+                            getType: () => ev.type,
+                            getContent: () => ev.content || {}
+                        }));
+                    }
+                } catch (err) {
+                    console.error('Failed to guest-fetch trending tags', err);
+                }
+            }
 
-            const timeline = room.getLiveTimeline();
-            const events = timeline.getEvents();
+            if (!events || events.length === 0) return;
 
             const freq = new Map<string, number>();
 
             for (const event of events) {
                 if (event.getType() !== 'm.room.message') continue;
-                const body: string = event.getContent()?.body || '';
+                const body = (event.getContent()?.body as string) || '';
 
                 // Extract all #hashtags
                 const matches = body.match(/#([A-Za-z0-9_]+)/g);
@@ -65,8 +87,8 @@ export function TrendingTopics() {
 
         extractHashtags();
 
-        // Re-extract every 30s
-        const interval = setInterval(extractHashtags, 30_000);
+        // Re-extract every 60s
+        const interval = setInterval(extractHashtags, 60_000);
         return () => clearInterval(interval);
     }, []);
 

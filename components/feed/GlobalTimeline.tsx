@@ -136,7 +136,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                     });
 
                     // Wrap raw events in a lightweight adapter that PostCard can consume
-                    const wrappedEvents = rawEvents.map((ev: any) => ({
+                    const wrappedEvents = rawEvents.map((ev: { event_id: string, type: string, sender: string, content?: Record<string, any>, origin_server_ts?: number, room_id?: string }) => ({
                         getId: () => ev.event_id,
                         getType: () => ev.type,
                         getSender: () => ev.sender,
@@ -549,19 +549,16 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     if (roomError) {
         return (
-            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4">
-                <AlertTriangle className="w-12 h-12 text-amber-500" />
-                <h2 className="text-lg font-bold text-red-400">Error al acceder a la sala global</h2>
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[50vh]">
+                <div className="bg-orange-500/10 p-4 rounded-full mb-2">
+                    <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
+                </div>
+                <h2 className="text-xl font-bold text-white">Setting up your timeline...</h2>
                 <p className="text-sm text-neutral-400 max-w-md">
-                    El servidor Matrix rechazó la conexión a la sala. Es posible que el ID de la sala en las variables de entorno
-                    (<code className="text-xs bg-neutral-800 px-1 py-0.5 rounded">NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID</code>) sea incorrecto,
-                    que la sala haya sido eliminada, o que sea privada.
+                    We&apos;re connecting you to the decentralized network. This usually takes just a few seconds. If it doesn&apos;t load automatically, please kindly refresh the page.
                 </p>
-                <code className="text-xs text-neutral-600 font-mono bg-neutral-900 px-3 py-2 rounded max-w-md break-all">
-                    {roomError}
-                </code>
-                <Button onClick={() => { setRoomError(null); fetchMessages(); }} variant="outline" className="mt-2">
-                    <RefreshCcw className="mr-2 w-4 h-4" /> Reintentar
+                <Button onClick={() => window.location.reload()} className="mt-4 bg-orange-600 hover:bg-orange-700 text-white rounded-full px-6">
+                    <RefreshCcw className="mr-2 w-4 h-4" /> Refresh Page
                 </Button>
             </div>
         );
@@ -569,10 +566,11 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     if (error) {
         return (
-            <div className="p-8 text-center text-red-500">
-                <p className="mb-4 font-bold">{error}</p>
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[50vh]">
+                <AlertTriangle className="w-10 h-10 text-amber-500 mb-2" />
+                <p className="font-bold text-white max-w-xs">{error}</p>
                 {!error.includes('Authentication Failed') && (
-                    <Button onClick={fetchMessages} variant="outline">
+                    <Button onClick={fetchMessages} variant="outline" className="mt-2 rounded-full px-6">
                         <RefreshCcw className="mr-2 w-4 h-4" /> Try Again
                     </Button>
                 )}

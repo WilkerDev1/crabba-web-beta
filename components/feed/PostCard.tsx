@@ -192,12 +192,19 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         if (!text || typeof text !== 'string') return null;
         if (isRepost && !originalEvent) return null; // Hide the "♻️ Reposted..." body text if we are rendering the nested card
 
-        const parts = text.split(/(#\w+)/g);
+        const parts = text.split(/(#[A-Za-z0-9_]+|@[a-zA-Z0-9_.-]+)/g);
         return parts.map((part, i) => {
             if (part.startsWith('#')) {
                 const tag = part.substring(1);
                 return (
                     <Link key={i} href={`/search?q=%23${tag}`} onClick={e => e.stopPropagation()} className="text-orange-500 hover:underline">
+                        {part}
+                    </Link>
+                );
+            } else if (part.startsWith('@')) {
+                const username = part.substring(1);
+                return (
+                    <Link key={i} href={`/${username}`} onClick={e => e.stopPropagation()} className="font-semibold text-amber-500 hover:underline">
                         {part}
                     </Link>
                 );
