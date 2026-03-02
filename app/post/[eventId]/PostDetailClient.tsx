@@ -3,6 +3,7 @@
 import { useEffect, useState, use } from 'react';
 import { getMatrixClient, getSharedClient, guestFetch } from '@/lib/matrix';
 import { PostCard } from '@/components/feed/PostCard';
+import { GlobalTimeline } from '@/components/feed/GlobalTimeline';
 import { AppShell } from '@/components/layout/AppShell';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
@@ -67,42 +68,28 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             setIsGuest(guestMode);
 
             if (guestMode) {
-                // ─── GUEST MODE: Fetch event + context via REST API ───
-                console.log('[PostDetail] Guest mode: fetching via /context API...');
+                // ─── GUEST MODE: Fetch ONLY the target event (no context) ───
+                console.log('[PostDetail] Guest mode: fetching via /context API (limit=0)...');
                 const baseUrl = matrixClient.getHomeserverUrl();
                 const encodedRoomId = encodeURIComponent(ROOM_ID);
                 const encodedEventId = encodeURIComponent(eventId);
 
-                // Fetch event context (the event + surrounding events)
                 const contextData = await guestFetch(
                     baseUrl,
-                    `/_matrix/client/v3/rooms/${encodedRoomId}/context/${encodedEventId}?limit=20`
+                    `/_matrix/client/v3/rooms/${encodedRoomId}/context/${encodedEventId}?limit=0`
                 );
 
-                // Main event
+                // Main event only — no parents/replies from context
                 if (contextData.event) {
                     setEventData(wrapEvent(contextData.event));
                 } else {
                     throw new Error('Event not found');
                 }
 
-                // Parent chain from events_before
-                const parentEvents = (contextData.events_before || [])
-                    .filter((ev: any) => ev.type === 'm.room.message')
-                    .map(wrapEvent);
-                setParents(parentEvents);
-
-                // Replies from events_after
-                const replyEvents = (contextData.events_after || [])
-                    .filter((ev: any) => {
-                        if (ev.type !== 'm.room.message') return false;
-                        const relatesTo = ev.content?.['m.relates_to'];
-                        // Only show direct replies to THIS event
-                        return relatesTo?.['m.in_reply_to']?.event_id === eventId ||
-                            (relatesTo?.rel_type === 'm.thread' && relatesTo?.['m.in_reply_to']?.event_id === eventId);
-                    })
-                    .map((ev: any) => ({ event: wrapEvent(ev), childCount: 0 }));
-                setReplies(replyEvents);
+                // Parents and replies are NOT extracted from context.
+                // Actual thread replies will be rendered via <GlobalTimeline filterThreadId={eventId} /> below.
+                setParents([]);
+                setReplies([]);
 
             } else {
                 // ─── AUTHENTICATED MODE: Use SDK methods ───
@@ -409,25 +396,32 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             )}
 
             {/* Replies List */}
-            <div className="divide-y divide-neutral-800 pb-20">
-                {replies.length === 0 ? (
-                    <div className="p-12 text-center text-neutral-500">
-                        No replies yet.
-                    </div>
-                ) : (
-                    replies.map(({ event: replyEvent, childCount }: any) => (
-                        <PostCard
-                            key={replyEvent.getId()}
-                            event={replyEvent}
-                            matrixClient={client}
-                            isDetailView={false}
-                            showThreadLine={false}
-                            isLastInThread={true}
-                            hasChildren={childCount > 0}
-                        />
-                    ))
-                )}
-            </div>
+            {isGuest ? (
+                // Guest: use GlobalTimeline to find actual thread replies via /messages filter
+                <div className="pb-20">
+                    <GlobalTimeline filterThreadId={eventId} />
+                </div>
+            ) : (
+                <div className="divide-y divide-neutral-800 pb-20">
+                    {replies.length === 0 ? (
+                        <div className="p-12 text-center text-neutral-500">
+                            No replies yet.
+                        </div>
+                    ) : (
+                        replies.map(({ event: replyEvent, childCount }: any) => (
+                            <PostCard
+                                key={replyEvent.getId()}
+                                event={replyEvent}
+                                matrixClient={client}
+                                isDetailView={false}
+                                showThreadLine={false}
+                                isLastInThread={true}
+                                hasChildren={childCount > 0}
+                            />
+                        ))
+                    )}
+                </div>
+            )}
         </AppShell>
     );
 }

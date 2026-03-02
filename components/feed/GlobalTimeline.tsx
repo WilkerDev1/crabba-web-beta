@@ -122,6 +122,14 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                             if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
                         }
 
+                        if (filterThreadId) {
+                            const relatesTo = content['m.relates_to'];
+                            if (!relatesTo) return false;
+                            const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
+                            const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+                            if (!isThreadMember && !isDirectReply) return false;
+                        }
+
                         return true;
                     });
 
