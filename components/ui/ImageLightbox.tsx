@@ -16,7 +16,10 @@ export function ImageLightbox({ srcs, initialIndex = 0, alt = "Image", open, onC
     const [currentIndex, setCurrentIndex] = useState(initialIndex);
 
     useEffect(() => {
-        if (open) setCurrentIndex(initialIndex);
+        if (open) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            setCurrentIndex(initialIndex);
+        }
     }, [open, initialIndex]);
 
     const handlePrevious = useCallback((e?: React.MouseEvent) => {
@@ -74,6 +77,7 @@ export function ImageLightbox({ srcs, initialIndex = 0, alt = "Image", open, onC
                     </button>
                 )}
 
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                     key={currentIndex} // forces re-render/animation on change
                     src={srcs[currentIndex]}
