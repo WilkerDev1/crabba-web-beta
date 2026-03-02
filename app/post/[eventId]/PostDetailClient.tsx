@@ -62,7 +62,8 @@ export default function PostDetailPage({ params }: { params: Promise<{ eventId: 
             setClient(matrixClient);
 
             const token = matrixClient.getAccessToken();
-            const guestMode = !token;
+            // Guest detection: guests use sessionStorage token, real users use localStorage
+            const guestMode = typeof window !== 'undefined' && !!sessionStorage.getItem('matrix_guest_token') && !localStorage.getItem('matrix_access_token');
             setIsGuest(guestMode);
 
             if (guestMode) {

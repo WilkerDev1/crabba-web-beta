@@ -32,7 +32,7 @@ function SearchContent() {
                 }
                 setClient(matrixClient);
 
-                const isGuest = !matrixClient.getAccessToken();
+                const isGuest = typeof window !== 'undefined' && !!sessionStorage.getItem('matrix_guest_token') && !localStorage.getItem('matrix_access_token');
 
                 if (isGuest) {
                     // ─── GUEST MODE: Fetch messages via REST API ───

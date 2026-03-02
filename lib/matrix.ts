@@ -59,7 +59,7 @@ export const setBaseUrl = (url: string): void => {
  * Registers via /_matrix/client/v3/register?kind=guest and caches
  * in sessionStorage (dies when tab closes) to prevent DB bloat.
  */
-export async function getGuestToken(baseUrl?: string): Promise<string> {
+export async function getGuestToken(baseUrl?: string): Promise<string | null> {
     // 1. Check sessionStorage cache first
     if (typeof window !== 'undefined') {
         const stored = sessionStorage.getItem('matrix_guest_token');
@@ -67,26 +67,31 @@ export async function getGuestToken(baseUrl?: string): Promise<string> {
     }
 
     // 2. Register a new temporary guest
-    const effectiveUrl = baseUrl || getEffectiveBaseUrl();
-    const res = await fetch(`${effectiveUrl}/_matrix/client/v3/register?kind=guest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-    });
+    try {
+        const effectiveUrl = baseUrl || getEffectiveBaseUrl();
+        const res = await fetch(`${effectiveUrl}/_matrix/client/v3/register?kind=guest`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+        });
 
-    if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`Failed to register Matrix guest: ${res.status} ${errText}`);
+        if (!res.ok) {
+            console.warn(`Guest registration failed: ${res.status} — guest access may be disabled on this server.`);
+            return null;
+        }
+
+        const data = await res.json();
+
+        // 3. Cache in sessionStorage
+        if (typeof window !== 'undefined' && data.access_token) {
+            sessionStorage.setItem('matrix_guest_token', data.access_token);
+        }
+
+        return data.access_token;
+    } catch (err) {
+        console.warn('Guest token registration error:', err);
+        return null;
     }
-
-    const data = await res.json();
-
-    // 3. Cache in sessionStorage
-    if (typeof window !== 'undefined' && data.access_token) {
-        sessionStorage.setItem('matrix_guest_token', data.access_token);
-    }
-
-    return data.access_token;
 }
 
 /**
@@ -96,6 +101,7 @@ export async function getGuestToken(baseUrl?: string): Promise<string> {
  */
 export async function guestFetch(baseUrl: string, endpoint: string): Promise<any> {
     const token = await getGuestToken(baseUrl);
+    if (!token) throw new Error('Guest access is not available on this server.');
     const url = `${baseUrl}${endpoint}`;
     const res = await fetch(url, {
         headers: { 'Authorization': `Bearer ${token}` },
@@ -107,6 +113,7 @@ export async function guestFetch(baseUrl: string, endpoint: string): Promise<any
             sessionStorage.removeItem('matrix_guest_token');
         }
         const freshToken = await getGuestToken(baseUrl);
+        if (!freshToken) throw new Error('Guest re-registration failed.');
         const retry = await fetch(url, {
             headers: { 'Authorization': `Bearer ${freshToken}` },
         });
@@ -254,7 +261,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                         }
                         client = createClient({
                             baseUrl,
-                            accessToken: guestToken,
+                            accessToken: guestToken || undefined,
                             fetchFn: customFetchFn,
                         });
                     } catch (guestErr) {

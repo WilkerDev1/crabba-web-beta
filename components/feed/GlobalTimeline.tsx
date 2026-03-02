@@ -79,8 +79,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
             setClient(matrixClient);
 
-            // Detect guest mode (tokenless client)
-            const isGuest = !matrixClient.getAccessToken();
+            // Detect guest mode: guests use sessionStorage token, real users use localStorage
+            const isGuest = typeof window !== 'undefined' && !!sessionStorage.getItem('matrix_guest_token') && !localStorage.getItem('matrix_access_token');
 
             if (isGuest) {
                 // ─── GUEST MODE: Direct HTTP fetch from public room ───
