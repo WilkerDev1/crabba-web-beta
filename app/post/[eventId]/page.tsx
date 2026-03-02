@@ -103,8 +103,9 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
 
     // Build image URL — use the SEO proxy so scrapers can access it
     let seoImageUrl: string | null = null;
-    const rawMxc = mxcUrl || content.info?.thumbnail_url;
-    if ((msgtype === 'm.image' || msgtype === 'm.video') && rawMxc) {
+    const customMedia = content['crabba.media'];
+    const rawMxc = customMedia?.[0]?.url || mxcUrl || content.info?.thumbnail_url;
+    if ((msgtype === 'm.image' || msgtype === 'm.video' || !!customMedia) && rawMxc) {
         seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(rawMxc)}`;
     } else if (content.info?.thumbnail_url) {
         seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(content.info.thumbnail_url)}`;

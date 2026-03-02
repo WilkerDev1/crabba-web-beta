@@ -35,7 +35,8 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const [isDeleted, setIsDeleted] = useState<boolean>(false);
     const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
     const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
-    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const [blobUrls, setBlobUrls] = useState<string[]>([]);
+    const [lightboxIndex, setLightboxIndex] = useState<number>(0);
     const [isWarningRevealed, setIsWarningRevealed] = useState<boolean>(false);
     const [originalEvent, setOriginalEvent] = useState<any>(null);
     const [fetchingOriginal, setFetchingOriginal] = useState(false);
@@ -84,9 +85,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
 
     // Media detection
+    const customMedia = content['crabba.media'];
     const isImageMsg = content.msgtype === 'm.image';
     const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/);
-    const hasImage = !!(isImageMsg || isImageFile) && !!content.url;
+    const hasImage = !!customMedia || !!(isImageMsg || isImageFile) && !!content.url;
 
     const isVideoMsg = content.msgtype === 'm.video';
     const hasVideo = isVideoMsg && !!content.url;
@@ -377,13 +379,26 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[75vh]">
                             <div
                                 className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); if (!isLocked && !showWarningOverlay) setLightboxOpen(true); }}
                             >
                                 <MatrixMedia
+                                    mediaItems={customMedia}
                                     mxcUrl={content.url}
                                     alt={body || 'Post image'}
                                     className={`w-full h-full object-cover object-center max-h-[75vh] transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
-                                    onBlobReady={(url) => setBlobUrl(url)}
+                                    onBlobReady={(url, idx) => {
+                                        setBlobUrls(prev => {
+                                            const newArr = [...prev];
+                                            newArr[idx || 0] = url;
+                                            return newArr;
+                                        });
+                                    }}
+                                    onClick={(e, idx) => {
+                                        e.stopPropagation();
+                                        if (!isLocked && !showWarningOverlay) {
+                                            setLightboxIndex(idx || 0);
+                                            setLightboxOpen(true);
+                                        }
+                                    }}
                                 />
                             </div>
                             {isLocked && (
@@ -410,7 +425,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     )}
 
                     {/* Video Attachment — authenticated blob fetch */}
-                    {!isRepost && hasVideo && (
+                    {!isRepost && hasVideo && !customMedia && (
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
                             <MatrixMedia
                                 mxcUrl={content.url}
@@ -544,9 +559,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 isDeleting={isDeleting}
             />
 
-            {blobUrl && (
+            {blobUrls.length > 0 && (
                 <ImageLightbox
-                    src={blobUrl}
+                    srcs={blobUrls.filter(Boolean)}
+                    initialIndex={lightboxIndex}
                     alt={body || 'Post image'}
                     open={lightboxOpen}
                     onClose={() => setLightboxOpen(false)}

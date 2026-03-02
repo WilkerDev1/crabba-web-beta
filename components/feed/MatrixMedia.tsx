@@ -2,21 +2,28 @@
 
 import React, { useState, useEffect } from 'react';
 
+interface MediaItem {
+    url: string;
+    type?: string;
+}
+
 interface MatrixMediaProps {
-    mxcUrl: string;
+    mxcUrl?: string; // Legacy fallback
+    mediaItems?: MediaItem[]; // New multi-media array
     alt?: string;
     className?: string;
-    isVideo?: boolean;
-    onBlobReady?: (blobUrl: string) => void;
-    onClick?: (e: React.MouseEvent) => void;
+    isVideo?: boolean; // Legacy fallback
+    onBlobReady?: (blobUrl: string, index?: number) => void;
+    onClick?: (e: React.MouseEvent, index?: number) => void;
 }
 
 /**
+ * Single media fetcher that securely resolves mxc URIs.
  * Fetches Matrix media securely using the authenticated V1 endpoint.
  * Works for both logged-in users (localStorage token) and guests (sessionStorage token).
  * Falls back to error state if no token is available at all.
  */
-export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobReady, onClick }: MatrixMediaProps) {
+function SingleMatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobReady, onClick, index }: { mxcUrl: string, alt?: string, className?: string, isVideo?: boolean, onBlobReady?: (url: string, index?: number) => void, onClick?: (e: React.MouseEvent, index?: number) => void, index?: number }) {
     const [imgSrc, setImgSrc] = useState<string | null>(null);
     const [error, setError] = useState(false);
 
@@ -52,7 +59,7 @@ export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobRea
                 const blobUrl = URL.createObjectURL(blob);
                 revoke = blobUrl;
                 setImgSrc(blobUrl);
-                onBlobReady?.(blobUrl);
+                onBlobReady?.(blobUrl, index);
             } catch (err) {
                 console.error("Failed to load Matrix media:", err);
                 setError(true);
@@ -89,7 +96,7 @@ export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobRea
                 playsInline
                 preload="metadata"
                 className={className}
-                onClick={onClick}
+                onClick={(e) => onClick?.(e, index)}
             />
         );
     }
@@ -99,7 +106,70 @@ export function MatrixMedia({ mxcUrl, alt, className, isVideo = false, onBlobRea
             src={imgSrc}
             alt={alt || "Media"}
             className={className}
-            onClick={onClick}
+            onClick={(e) => onClick?.(e, index)}
         />
+    );
+}
+
+/**
+ * Main MatrixMedia component which correctly routes either a single legacy mxcUrl
+ * or a new multi-media array into an aesthetic CSS Grid layout.
+ */
+export function MatrixMedia({ mxcUrl, mediaItems, alt, className, isVideo = false, onBlobReady, onClick }: MatrixMediaProps) {
+    // Determine the items to render
+    const items: MediaItem[] = mediaItems?.length ? mediaItems : mxcUrl ? [{ url: mxcUrl, type: isVideo ? 'video/mp4' : 'image/jpeg' }] : [];
+
+    if (items.length === 0) return null;
+
+    if (items.length === 1) {
+        return (
+            <SingleMatrixMedia
+                mxcUrl={items[0].url}
+                alt={alt}
+                className={className}
+                isVideo={items[0].type?.startsWith('video')}
+                onBlobReady={onBlobReady}
+                onClick={onClick}
+                index={0}
+            />
+        );
+    }
+
+    // Grid classes based on item length
+    let gridClass = 'grid gap-1 overflow-hidden rounded-xl';
+
+    // For specific heights we want to enforce an aspect ratio container
+    const aspectContainerClass = "relative w-full aspect-video sm:aspect-[16/9]";
+
+    if (items.length === 2) {
+        gridClass += ' grid-cols-2 h-full';
+    } else if (items.length === 3) {
+        gridClass += ' grid-cols-2 grid-rows-2 h-full';
+    } else if (items.length >= 4) {
+        gridClass += ' grid-cols-2 grid-rows-2 h-full';
+    }
+
+    return (
+        <div className={`${aspectContainerClass} ${gridClass}`}>
+            {items.slice(0, 4).map((item, idx) => {
+                // For 3 items, make the first one span 2 rows
+                const isFirstOfThree = items.length === 3 && idx === 0;
+                const itemClass = `w-full h-full object-cover transition-all hover:opacity-90 cursor-zoom-in ${isFirstOfThree ? 'row-span-2' : ''}`;
+
+                return (
+                    <div key={idx} className={`${isFirstOfThree ? 'row-span-2' : ''} h-full w-full overflow-hidden bg-neutral-900`}>
+                        <SingleMatrixMedia
+                            mxcUrl={item.url}
+                            alt={alt || `Media ${idx + 1}`}
+                            className={itemClass}
+                            isVideo={item.type?.startsWith('video')}
+                            onBlobReady={onBlobReady}
+                            onClick={onClick}
+                            index={idx}
+                        />
+                    </div>
+                );
+            })}
+        </div>
     );
 }
