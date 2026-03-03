@@ -186,7 +186,10 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                     setLoadingMessage("Searching global network...");
                     const token = matrixClient.getAccessToken();
                     const baseUrl = matrixClient.getHomeserverUrl();
-                    const searchTerm = filterHashtag ? `#${filterHashtag}` : searchQuery;
+                    const rawSearchTerm = filterHashtag ? `#${filterHashtag}` : (searchQuery || '');
+
+                    const isHashtag = rawSearchTerm.startsWith('#');
+                    const searchTerm = isHashtag ? rawSearchTerm.substring(1) : rawSearchTerm;
 
                     const res = await fetch(`${baseUrl}/_matrix/client/v3/search`, {
                         method: 'POST',
@@ -213,7 +216,17 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                     const data = await res.json();
                     const searchResults = (data.search_categories?.room_events?.results || []).map((r: { result: unknown }) => r.result);
 
-                    const wrappedEvents = searchResults.map((ev: { event_id?: string, type?: string, sender?: string, content?: Record<string, unknown>, origin_server_ts?: number, room_id?: string }) => ({
+                    // FTS Tokenization Fix: Matrix full text search ignores punctuation like '#'.
+                    // We must filter the results strictly to ensure the complete '#hashtag' is in the body.
+                    const filteredResults = isHashtag
+                        ? searchResults.filter((ev: Record<string, unknown>) => {
+                            const content = ev?.content as Record<string, unknown> | undefined;
+                            const body = String(content?.body || '');
+                            return body.toLowerCase().includes(rawSearchTerm.toLowerCase());
+                        })
+                        : searchResults;
+
+                    const wrappedEvents = filteredResults.map((ev: { event_id?: string, type?: string, sender?: string, content?: Record<string, unknown>, origin_server_ts?: number, room_id?: string }) => ({
                         getId: () => ev.event_id,
                         getType: () => ev.type,
                         getSender: () => ev.sender,
