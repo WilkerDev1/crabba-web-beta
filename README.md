@@ -15,6 +15,13 @@ A next-generation, decentralized social platform bridging Web2 ease-of-use with 
 - **Protocol**: Matrix Protocol
 - **Styling**: Tailwind CSS, Shadcn UI
 
+## Prerequisites for Local Development
+
+Before you begin, ensure you have met the following requirements:
+*   **Node.js**: You must have Node.js version 18 or higher installed.
+*   **Git**: You must have Git installed to manage versions and branches.
+*   **Environment Variables**: You **must request the `.env.local` file directly from the Tech Lead (@wilker)**. This file contains critical Supabase and Matrix environment variables required to run the application locally.
+
 ## Getting Started
 
 First, run the development server:
