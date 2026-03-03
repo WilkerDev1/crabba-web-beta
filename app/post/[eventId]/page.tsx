@@ -101,11 +101,23 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
         ? body.slice(0, 200)
         : `View this post by ${displayName} on Crabba.`;
 
-    // Build image URL — use the SEO proxy so scrapers can access it
+    // Build image and video URLs — use the SEO proxy so scrapers can access it
     let seoImageUrl: string | null = null;
+    let seoVideoUrl: string | null = null;
+    let seoVideoType: string | null = null;
+
     const customMedia = content['crabba.media'];
     const rawMxc = customMedia?.[0]?.url || mxcUrl || content.info?.thumbnail_url;
-    if ((msgtype === 'm.image' || msgtype === 'm.video' || !!customMedia) && rawMxc) {
+
+    if (msgtype === 'm.video') {
+        if (content.info?.thumbnail_url) {
+            seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(content.info.thumbnail_url)}`;
+        }
+        if (mxcUrl) {
+            seoVideoUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(mxcUrl)}`;
+            seoVideoType = content.info?.mimetype || 'video/mp4';
+        }
+    } else if ((msgtype === 'm.image' || !!customMedia) && rawMxc) {
         seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(rawMxc)}`;
     } else if (content.info?.thumbnail_url) {
         seoImageUrl = `https://crabba.net/api/media?mxc=${encodeURIComponent(content.info.thumbnail_url)}`;
@@ -127,9 +139,17 @@ export async function generateMetadata({ params }: { params: Promise<{ eventId: 
                     alt: 'Art content',
                 },
             ] : [],
+            ...(seoVideoUrl ? {
+                videos: [
+                    {
+                        url: seoVideoUrl,
+                        type: seoVideoType || 'video/mp4',
+                    }
+                ]
+            } : {})
         },
         twitter: {
-            card: 'summary_large_image',
+            card: seoVideoUrl ? 'player' : 'summary_large_image',
             title: ogTitle,
             description,
             images: seoImageUrl ? [seoImageUrl] : [],
