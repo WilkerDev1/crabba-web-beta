@@ -405,7 +405,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     useEffect(() => {
         fetchMessages();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [refreshTrigger, filterHashtag]);
+    }, [refreshTrigger, filterHashtag, searchQuery]);
 
     // ─── Real-Time Event Listener ───
     useEffect(() => {

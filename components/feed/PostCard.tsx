@@ -27,9 +27,12 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const router = useRouter();
 
     const [liked, setLiked] = useState<boolean>(false);
+    const [userReactionEventId, setUserReactionEventId] = useState<string | null>(null);
     const [likeCount, setLikeCount] = useState<number>(0);
     const [replyCount, setReplyCount] = useState<number>(0);
     const [repostCount, setRepostCount] = useState<number>(0);
+    const [isReposted, setIsReposted] = useState<boolean>(false);
+    const [userRepostEventId, setUserRepostEventId] = useState<string | null>(null);
     const [isLiking, setIsLiking] = useState<boolean>(false);
     const [isReposting, setIsReposting] = useState<boolean>(false);
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
@@ -106,8 +109,13 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 if (reactions?.events) {
                     setLikeCount(reactions.events.length);
                     // Check if current user liked
-                    if (reactions.events.some((e: any) => e.getSender() === myUserId)) {
+                    const userReaction = reactions.events.find((e: any) => e.getSender() === myUserId);
+                    if (userReaction) {
                         setLiked(true);
+                        setUserReactionEventId(userReaction.getId());
+                    } else {
+                        setLiked(false);
+                        setUserReactionEventId(null);
                     }
                 }
 
@@ -118,9 +126,17 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 }
 
                 // Reposts
-                const reposts = await matrixClient.relations(roomId, eventId, "m.reference", "m.room.message");
+                const reposts = await matrixClient.relations(roomId, targetEventId, "m.reference", "m.room.message");
                 if (reposts?.events) {
                     setRepostCount(reposts.events.length);
+                    const userRepost = reposts.events.find((e: any) => e.getSender() === myUserId);
+                    if (userRepost) {
+                        setIsReposted(true);
+                        setUserRepostEventId(userRepost.getId());
+                    } else {
+                        setIsReposted(false);
+                        setUserRepostEventId(null);
+                    }
                 }
 
             } catch (err) {
@@ -129,7 +145,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         };
 
         fetchRelations();
-    }, [matrixClient, roomId, eventId, isNested]);
+    }, [matrixClient, roomId, eventId, targetEventId, isNested]);
 
     // Fetch reply context
     useEffect(() => {
@@ -224,15 +240,23 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         const likeRoomId = event.getRoomId();
 
         try {
-            await matrixClient.sendEvent(likeRoomId, "m.reaction", {
-                "m.relates_to": {
-                    rel_type: "m.annotation",
-                    event_id: targetEventId,
-                    key: "❤️"
-                }
-            });
-            setLiked(true);
-            setLikeCount(prev => prev + 1);
+            if (liked && userReactionEventId) {
+                await matrixClient.redactEvent(likeRoomId, userReactionEventId);
+                setLiked(false);
+                setUserReactionEventId(null);
+                setLikeCount(prev => Math.max(0, prev - 1));
+            } else {
+                const res = await matrixClient.sendEvent(likeRoomId, "m.reaction", {
+                    "m.relates_to": {
+                        rel_type: "m.annotation",
+                        event_id: targetEventId,
+                        key: "❤️"
+                    }
+                });
+                setLiked(true);
+                setUserReactionEventId(res.event_id);
+                setLikeCount(prev => prev + 1);
+            }
         } catch (error: any) {
             const errStr = String(error);
             if (error?.data?.errcode === 'M_DUPLICATE_ANNOTATION' || error?.errcode === 'M_DUPLICATE_ANNOTATION' || errStr.includes('M_DUPLICATE_ANNOTATION') || errStr.includes('400')) {
@@ -255,15 +279,24 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         if (!matrixClient || isReposting) return;
         setIsReposting(true);
         try {
-            await matrixClient.sendEvent(roomId, "m.room.message" as any, {
-                msgtype: "m.text",
-                body: `♻️ Reposted @${senderName}'s post`,
-                "m.relates_to": {
-                    rel_type: "m.reference",
-                    event_id: targetEventId
-                }
-            });
-            setRepostCount(prev => prev + 1);
+            if (isReposted && userRepostEventId) {
+                await matrixClient.redactEvent(roomId, userRepostEventId);
+                setIsReposted(false);
+                setUserRepostEventId(null);
+                setRepostCount(prev => Math.max(0, prev - 1));
+            } else {
+                const res = await matrixClient.sendEvent(roomId, "m.room.message" as any, {
+                    msgtype: "m.text",
+                    body: `♻️ Reposted @${senderName}'s post`,
+                    "m.relates_to": {
+                        rel_type: "m.reference",
+                        event_id: targetEventId
+                    }
+                });
+                setIsReposted(true);
+                setUserRepostEventId(res.event_id);
+                setRepostCount(prev => prev + 1);
+            }
         } catch (error) {
             console.error("Failed to repost", error);
         } finally {
@@ -513,9 +546,9 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 />
                             )}
                             <ActionIcon
-                                icon={isReposting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className={`w-4 h-4 ${isRepost ? 'text-green-500' : ''}`} />}
+                                icon={isReposting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className={`w-4 h-4 ${isReposted || isRepost ? 'text-green-500' : ''}`} />}
                                 count={repostCount}
-                                color="group-hover:text-green-500"
+                                color={isReposted || isRepost ? "text-green-500" : "group-hover:text-green-500"}
                                 bg="group-hover:bg-green-500/10"
                                 onClick={handleRepost}
                             />
