@@ -70,11 +70,17 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     const observerTarget = useRef<HTMLDivElement>(null);
     const [activeTab, setActiveTab] = useState<'recientes' | 'tendencias'>('recientes');
 
-    // Interaction cache: eventId → {likes, reposts, replies}
     const [interactionCache, setInteractionCache] = useState<Map<string, InteractionCounts>>(new Map());
     const [cacheFetching, setCacheFetching] = useState(false);
     // Version counter — incremented every time cache updates to trigger useMemo reactivity
     const [metricsVersion, setMetricsVersion] = useState(0);
+
+    const [autoFetchCount, setAutoFetchCount] = useState(0);
+
+    // Reset auto-fetch count when filters change
+    useEffect(() => {
+        setAutoFetchCount(0);
+    }, [filterHashtag, searchQuery, filterUserId, filterThreadId, filterType]);
 
     const fetchMessages = async () => {
         // Only set loading on first load to avoid flickering on refresh
@@ -265,7 +271,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 if (room) {
                     // Room already synced
                     const timeline = room.getLiveTimeline();
-                    const events = timeline.getEvents().slice(-100).reverse();
+                    const events = timeline.getEvents().reverse(); // Fetch all currently loaded and reverse
                     const messageEvents = events.filter((e) => {
                         const mlEvent = e as unknown as MatrixEventLike;
                         if (mlEvent.isRedacted() || mlEvent.getType() === 'm.room.redaction') return false;
@@ -538,6 +544,16 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         }
     }, [client, hasMore, loadingMore]);
 
+    // Auto-fetch if filtered results are sparse and we still have history to check
+    useEffect(() => {
+        const isFiltered = !!(filterHashtag || searchQuery || filterUserId || filterThreadId || filterType !== 'all');
+        // Stop automatically after 20 deep fetches (400 messages deep) to prevent infinite loops
+        if (isFiltered && events.length < 5 && hasMore && !loading && !loadingMore && autoFetchCount < 20) {
+            setAutoFetchCount(prev => prev + 1);
+            loadMore();
+        }
+    }, [events.length, hasMore, loading, loadingMore, loadMore, filterHashtag, searchQuery, filterUserId, filterThreadId, filterType, autoFetchCount]);
+
     useEffect(() => {
         const observer = new IntersectionObserver(
             entries => {
@@ -611,10 +627,11 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         );
     }
 
-    if (events.length === 0) {
+    // Only return early if we genuinely have no events AND no more history to check
+    if (events.length === 0 && !hasMore) {
         return (
             <div className="p-12 text-center text-neutral-500">
-                {filterUserId ? "This user hasn't posted anything yet." : "No messages found in this room."}
+                {filterUserId ? "This user hasn't posted anything yet." : "No matching posts found in the timeline."}
             </div>
         )
     }
@@ -626,15 +643,23 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 <PostCard key={event.getId()} event={event} matrixClient={client} />
             ))}
 
-            <div ref={observerTarget} className="py-8 text-center text-neutral-500 text-sm">
+            <div ref={observerTarget} className="py-8 text-center text-neutral-500 text-sm flex flex-col items-center justify-center">
                 {loadingMore && (
                     <div className="flex items-center justify-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Loading more posts...</span>
+                        <span>{events.length === 0 ? "Searching deeper historically..." : "Loading more posts..."}</span>
+                    </div>
+                )}
+                {!loadingMore && hasMore && events.length < 5 && autoFetchCount >= 20 && (
+                    <div className="mt-4 flex flex-col items-center">
+                        <p className="mb-4">No recent matches found. Keep searching?</p>
+                        <button onClick={() => { setAutoFetchCount(0); loadMore(); }} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors text-xs font-bold">
+                            Search Older Posts
+                        </button>
                     </div>
                 )}
                 {!hasMore && events.length > 0 && (
-                    <span>You&apos;ve reached the beginning of the timeline.</span>
+                    <span className="mt-4">You&apos;ve reached the beginning of the timeline.</span>
                 )}
             </div>
         </>
