@@ -1,101 +1,20 @@
 'use client';
 
-import { useState, useEffect, useMemo, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppShell } from '@/components/layout/AppShell';
-import { getMatrixClient, getSharedClient, guestFetch } from '@/lib/matrix';
-import { PostCard } from '@/components/feed/PostCard';
+import { GlobalTimeline } from '@/components/feed/GlobalTimeline';
 import { Search as SearchIcon, Loader2 } from 'lucide-react';
-
-const ROOM_ID = process.env.NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID || '!iyDNoJTahsHwSkiukz:localhost';
 
 function SearchContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const q = searchParams.get('q') || '';
     const [query, setQuery] = useState(q);
-    const [client, setClient] = useState<any>(null);
-    const [events, setEvents] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         setQuery(q);
     }, [q]);
-
-    useEffect(() => {
-        const init = async () => {
-            try {
-                const matrixClient = getSharedClient() || await getMatrixClient();
-                if (!matrixClient) {
-                    setLoading(false);
-                    return;
-                }
-                setClient(matrixClient);
-
-                const isGuest = typeof window !== 'undefined' && !!sessionStorage.getItem('matrix_guest_token') && !localStorage.getItem('matrix_access_token');
-
-                if (isGuest) {
-                    // ─── GUEST MODE: Fetch messages via REST API ───
-                    console.log('[Search] Guest mode: fetching via HTTP...');
-                    const baseUrl = matrixClient.getHomeserverUrl();
-                    const encodedRoomId = encodeURIComponent(ROOM_ID);
-                    const data = await guestFetch(
-                        baseUrl,
-                        `/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=100`
-                    );
-
-                    const rawEvents = (data.chunk || [])
-                        .filter((ev: any) => ev.type === 'm.room.message')
-                        .map((ev: any) => ({
-                            getId: () => ev.event_id,
-                            getType: () => ev.type,
-                            getSender: () => ev.sender,
-                            getContent: () => ev.content || {},
-                            getTs: () => ev.origin_server_ts || 0,
-                            getRoomId: () => ev.room_id || ROOM_ID,
-                            isRedacted: () => false,
-                            getDate: () => new Date(ev.origin_server_ts || 0),
-                            event: ev,
-                            status: null,
-                        }));
-                    setEvents(rawEvents);
-                } else {
-                    // ─── AUTHENTICATED MODE: Use SDK ───
-                    const room = matrixClient.getRoom(ROOM_ID);
-                    if (room) {
-                        const timeline = room.getLiveTimeline();
-                        const allEvents = timeline.getEvents().reverse();
-                        const messageEvents = allEvents.filter((e: any) => {
-                            if (e.isRedacted() || e.getType() !== 'm.room.message') return false;
-                            return true;
-                        });
-                        setEvents(messageEvents);
-                    }
-                }
-            } catch (err) {
-                console.error('Search init failed:', err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        init();
-    }, []);
-
-    const filteredEvents = useMemo(() => {
-        if (!q.trim()) return [];
-        const lower = q.toLowerCase();
-
-        return events.filter((event: any) => {
-            // Username search: @username
-            if (lower.startsWith('@')) {
-                const sender = event.getSender()?.toLowerCase() || '';
-                return sender.includes(lower);
-            }
-            // Hashtag or text search
-            const body = event.getContent()?.body?.toLowerCase() || '';
-            return body.includes(lower);
-        });
-    }, [q, events]);
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -128,30 +47,14 @@ function SearchContent() {
                 </form>
             </div>
 
-            {loading ? (
-                <div className="flex justify-center p-12">
-                    <Loader2 className="w-6 h-6 animate-spin text-neutral-500" />
-                </div>
-            ) : !q.trim() ? (
+            {!q.trim() ? (
                 <div className="p-12 text-center text-neutral-500">
                     <SearchIcon className="w-12 h-12 mx-auto mb-4 text-neutral-700" />
                     <h2 className="text-xl font-bold text-white mb-2">Search Crabba</h2>
                     <p>Find posts, hashtags, and users across the platform.</p>
                 </div>
-            ) : filteredEvents.length === 0 ? (
-                <div className="p-12 text-center text-neutral-500">
-                    <p className="text-lg">No results found for &quot;{q}&quot;</p>
-                    <p className="text-sm mt-2">Try a different search term or hashtag.</p>
-                </div>
             ) : (
-                <div className="divide-y divide-neutral-800">
-                    <div className="p-4 text-sm text-neutral-400">
-                        {filteredEvents.length} result{filteredEvents.length !== 1 ? 's' : ''} for &quot;{q}&quot;
-                    </div>
-                    {filteredEvents.map((event: any) => (
-                        <PostCard key={event.getId()} event={event} matrixClient={client} />
-                    ))}
-                </div>
+                <GlobalTimeline searchQuery={q.trim()} />
             )}
         </>
     );

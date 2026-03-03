@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { getSharedClient } from '@/lib/matrix';
-import { Hash } from 'lucide-react';
+import { Hash, Lock } from 'lucide-react';
 import Link from 'next/link';
 
 const ROOM_ID = process.env.NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID || '!iyDNoJTahsHwSkiukz:localhost';
@@ -22,74 +21,155 @@ interface TagCount {
 
 export function TrendingTopics() {
     const [tags, setTags] = useState<TagCount[]>(FALLBACK_TAGS);
+    const [isGuest, setIsGuest] = useState(false);
 
     useEffect(() => {
-        const extractHashtags = () => {
-            const client = getSharedClient();
-            if (!client) return;
+        let mounted = true;
+        let lastToken = localStorage.getItem('matrix_access_token');
+        let lastGuest = localStorage.getItem('matrix_guest_token');
 
-            const room = client.getRoom(ROOM_ID);
-            if (!room) return;
+        const extractHashtags = async () => {
+            const token = localStorage.getItem('matrix_access_token');
+            const guestToken = localStorage.getItem('matrix_guest_token');
 
-            const timeline = room.getLiveTimeline();
-            const events = timeline.getEvents();
+            if (!token || guestToken) {
+                if (mounted) setIsGuest(true);
+                return;
+            }
+            if (mounted) setIsGuest(false);
 
-            const freq = new Map<string, number>();
-
-            for (const event of events) {
-                if (event.getType() !== 'm.room.message') continue;
-                const body: string = event.getContent()?.body || '';
-
-                // Extract all #hashtags
-                const matches = body.match(/#([A-Za-z0-9_]+)/g);
-                if (matches) {
-                    for (const raw of matches) {
-                        const tag = raw.substring(1); // remove #
-                        if (tag.length < 2) continue; // ignore single-char tags
-                        freq.set(tag, (freq.get(tag) || 0) + 1);
+            try {
+                // Check cache first (2 minute expiration)
+                const cacheStr = sessionStorage.getItem('trending_tags_cache');
+                if (cacheStr) {
+                    try {
+                        const cache = JSON.parse(cacheStr);
+                        if (Date.now() - cache.timestamp < 120_000 && cache.tags?.length > 0) {
+                            if (mounted) setTags(cache.tags);
+                            return;
+                        }
+                    } catch {
+                        // ignore corrupt cache
                     }
                 }
-            }
 
-            // Sort descending by count, take top 5
-            const sorted = [...freq.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5)
-                .map(([tag, count]) => ({ tag, count }));
+                // Fetch via HTTP with correct authentication token
+                const baseUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || 'https://matrix.crabba.net';
+                const encodedRoomId = encodeURIComponent(ROOM_ID);
+                const res = await fetch(`${baseUrl}/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=300`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
 
-            if (sorted.length > 0) {
-                setTags(sorted);
+                if (!res.ok) {
+                    console.error('Failed to unauthenticated-fetch trending tags', res.status);
+                    return;
+                }
+
+                const data = await res.json();
+                if (!data || !data.chunk) return;
+
+                const events = data.chunk;
+                const freq = new Map<string, number>();
+
+                for (const event of events) {
+                    if (event.type !== 'm.room.message') continue;
+                    const body = (event.content?.body as string) || '';
+
+                    // Extract all #hashtags
+                    const matches = body.match(/#([A-Za-z0-9_]+)/g);
+                    if (matches) {
+                        for (const raw of matches) {
+                            const tag = raw.substring(1); // remove #
+                            if (tag.length < 2) continue; // ignore single-char tags
+                            freq.set(tag, (freq.get(tag) || 0) + 1);
+                        }
+                    }
+                }
+
+                // Sort descending by count, take top 5
+                const sorted = [...freq.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .slice(0, 5)
+                    .map(([tag, count]) => ({ tag, count }));
+
+                if (sorted.length > 0) {
+                    if (mounted) setTags(sorted);
+                    // Update cache
+                    sessionStorage.setItem('trending_tags_cache', JSON.stringify({
+                        timestamp: Date.now(),
+                        tags: sorted
+                    }));
+                }
+            } catch (err) {
+                console.error('Error in trending tags extraction:', err);
             }
-            // else keep fallbacks
         };
 
+        const checkAuth = () => {
+            const currentToken = localStorage.getItem('matrix_access_token');
+            const currentGuest = localStorage.getItem('matrix_guest_token');
+
+            // If token state changed (e.g. user logged in or out)
+            if (currentToken !== lastToken || currentGuest !== lastGuest) {
+                lastToken = currentToken;
+                lastGuest = currentGuest;
+                extractHashtags(); // Re-run immediately on auth change
+            }
+        };
+
+        // Initial extraction
         extractHashtags();
 
-        // Re-extract every 30s
-        const interval = setInterval(extractHashtags, 30_000);
-        return () => clearInterval(interval);
+        // Listen for standard storage events (cross-tab)
+        window.addEventListener('storage', checkAuth);
+
+        // Polling loop for same-tab auth detection (1 second) and cache refresh (60 seconds via modulo)
+        let ticks = 0;
+        const interval = setInterval(() => {
+            checkAuth();
+            ticks++;
+            if (ticks >= 60) {
+                extractHashtags();
+                ticks = 0;
+            }
+        }, 1000);
+
+        return () => {
+            mounted = false;
+            window.removeEventListener('storage', checkAuth);
+            clearInterval(interval);
+        };
     }, []);
 
     return (
         <div className="bg-neutral-900 border-none p-4 rounded-xl mb-4">
             <h2 className="font-bold text-xl mb-4 text-white">Trending Topics</h2>
-            <div className="flex flex-col gap-1">
-                {tags.map(({ tag, count }) => (
-                    <Link
-                        key={tag}
-                        href={`/search?q=%23${tag}`}
-                        className="flex justify-between items-center cursor-pointer hover:bg-neutral-800/50 p-2.5 rounded-lg transition-colors group"
-                    >
-                        <div>
-                            <p className="font-bold text-white group-hover:text-orange-500 transition-colors">#{tag}</p>
-                            <p className="text-xs text-neutral-500">
-                                {count > 0 ? `${count} post${count !== 1 ? 's' : ''}` : 'Trending'}
-                            </p>
-                        </div>
-                        <Hash className="w-4 h-4 text-neutral-600" />
-                    </Link>
-                ))}
-            </div>
+            {isGuest ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center text-neutral-500 border border-neutral-800 rounded-lg bg-neutral-900/50">
+                    <Lock className="w-6 h-6 mb-2 text-neutral-600" />
+                    <p className="text-sm">Sign in to see trending topics.</p>
+                </div>
+            ) : (
+                <div className="flex flex-col gap-1">
+                    {tags.map(({ tag, count }) => (
+                        <Link
+                            key={tag}
+                            href={`/search?q=%23${tag}`}
+                            className="flex justify-between items-center cursor-pointer hover:bg-neutral-800/50 p-2.5 rounded-lg transition-colors group"
+                        >
+                            <div>
+                                <p className="font-bold text-white group-hover:text-orange-500 transition-colors">#{tag}</p>
+                                <p className="text-xs text-neutral-500">
+                                    {count > 0 ? `${count} post${count !== 1 ? 's' : ''}` : 'Trending'}
+                                </p>
+                            </div>
+                            <Hash className="w-4 h-4 text-neutral-600" />
+                        </Link>
+                    ))}
+                </div>
+            )}
         </div>
     );
 }

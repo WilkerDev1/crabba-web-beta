@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { formatDistanceToNow } from 'date-fns';
 import { MessageSquare, Heart, Repeat, Share, Loader2, EyeOff } from 'lucide-react';
@@ -26,16 +27,20 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
     const router = useRouter();
 
     const [liked, setLiked] = useState<boolean>(false);
+    const [userReactionEventId, setUserReactionEventId] = useState<string | null>(null);
     const [likeCount, setLikeCount] = useState<number>(0);
     const [replyCount, setReplyCount] = useState<number>(0);
     const [repostCount, setRepostCount] = useState<number>(0);
+    const [isReposted, setIsReposted] = useState<boolean>(false);
+    const [userRepostEventId, setUserRepostEventId] = useState<string | null>(null);
     const [isLiking, setIsLiking] = useState<boolean>(false);
     const [isReposting, setIsReposting] = useState<boolean>(false);
     const [isDeleting, setIsDeleting] = useState<boolean>(false);
     const [isDeleted, setIsDeleted] = useState<boolean>(false);
     const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
     const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
-    const [blobUrl, setBlobUrl] = useState<string | null>(null);
+    const [blobUrls, setBlobUrls] = useState<string[]>([]);
+    const [lightboxIndex, setLightboxIndex] = useState<number>(0);
     const [isWarningRevealed, setIsWarningRevealed] = useState<boolean>(false);
     const [originalEvent, setOriginalEvent] = useState<any>(null);
     const [fetchingOriginal, setFetchingOriginal] = useState(false);
@@ -84,9 +89,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
 
 
     // Media detection
+    const customMedia = content['crabba.media'];
     const isImageMsg = content.msgtype === 'm.image';
     const isImageFile = content.url && content.body?.toLowerCase().match(/\.(jpeg|jpg|gif|png|webp)$/);
-    const hasImage = !!(isImageMsg || isImageFile) && !!content.url;
+    const hasImage = !!customMedia || !!(isImageMsg || isImageFile) && !!content.url;
 
     const isVideoMsg = content.msgtype === 'm.video';
     const hasVideo = isVideoMsg && !!content.url;
@@ -103,8 +109,13 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 if (reactions?.events) {
                     setLikeCount(reactions.events.length);
                     // Check if current user liked
-                    if (reactions.events.some((e: any) => e.getSender() === myUserId)) {
+                    const userReaction = reactions.events.find((e: any) => e.getSender() === myUserId);
+                    if (userReaction) {
                         setLiked(true);
+                        setUserReactionEventId(userReaction.getId());
+                    } else {
+                        setLiked(false);
+                        setUserReactionEventId(null);
                     }
                 }
 
@@ -115,9 +126,17 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 }
 
                 // Reposts
-                const reposts = await matrixClient.relations(roomId, eventId, "m.reference", "m.room.message");
+                const reposts = await matrixClient.relations(roomId, targetEventId, "m.reference", "m.room.message");
                 if (reposts?.events) {
                     setRepostCount(reposts.events.length);
+                    const userRepost = reposts.events.find((e: any) => e.getSender() === myUserId);
+                    if (userRepost) {
+                        setIsReposted(true);
+                        setUserRepostEventId(userRepost.getId());
+                    } else {
+                        setIsReposted(false);
+                        setUserRepostEventId(null);
+                    }
                 }
 
             } catch (err) {
@@ -126,7 +145,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         };
 
         fetchRelations();
-    }, [matrixClient, roomId, eventId, isNested]);
+    }, [matrixClient, roomId, eventId, targetEventId, isNested]);
 
     // Fetch reply context
     useEffect(() => {
@@ -190,12 +209,19 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         if (!text || typeof text !== 'string') return null;
         if (isRepost && !originalEvent) return null; // Hide the "♻️ Reposted..." body text if we are rendering the nested card
 
-        const parts = text.split(/(#\w+)/g);
+        const parts = text.split(/(#[A-Za-z0-9_]+|@[a-zA-Z0-9_.-]+)/g);
         return parts.map((part, i) => {
             if (part.startsWith('#')) {
                 const tag = part.substring(1);
                 return (
                     <Link key={i} href={`/search?q=%23${tag}`} onClick={e => e.stopPropagation()} className="text-orange-500 hover:underline">
+                        {part}
+                    </Link>
+                );
+            } else if (part.startsWith('@')) {
+                const username = part.substring(1);
+                return (
+                    <Link key={i} href={`/${username}`} onClick={e => e.stopPropagation()} className="font-semibold text-amber-500 hover:underline">
                         {part}
                     </Link>
                 );
@@ -214,15 +240,23 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         const likeRoomId = event.getRoomId();
 
         try {
-            await matrixClient.sendEvent(likeRoomId, "m.reaction", {
-                "m.relates_to": {
-                    rel_type: "m.annotation",
-                    event_id: targetEventId,
-                    key: "❤️"
-                }
-            });
-            setLiked(true);
-            setLikeCount(prev => prev + 1);
+            if (liked && userReactionEventId) {
+                await matrixClient.redactEvent(likeRoomId, userReactionEventId);
+                setLiked(false);
+                setUserReactionEventId(null);
+                setLikeCount(prev => Math.max(0, prev - 1));
+            } else {
+                const res = await matrixClient.sendEvent(likeRoomId, "m.reaction", {
+                    "m.relates_to": {
+                        rel_type: "m.annotation",
+                        event_id: targetEventId,
+                        key: "❤️"
+                    }
+                });
+                setLiked(true);
+                setUserReactionEventId(res.event_id);
+                setLikeCount(prev => prev + 1);
+            }
         } catch (error: any) {
             const errStr = String(error);
             if (error?.data?.errcode === 'M_DUPLICATE_ANNOTATION' || error?.errcode === 'M_DUPLICATE_ANNOTATION' || errStr.includes('M_DUPLICATE_ANNOTATION') || errStr.includes('400')) {
@@ -245,15 +279,24 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
         if (!matrixClient || isReposting) return;
         setIsReposting(true);
         try {
-            await matrixClient.sendEvent(roomId, "m.room.message" as any, {
-                msgtype: "m.text",
-                body: `♻️ Reposted @${senderName}'s post`,
-                "m.relates_to": {
-                    rel_type: "m.reference",
-                    event_id: targetEventId
-                }
-            });
-            setRepostCount(prev => prev + 1);
+            if (isReposted && userRepostEventId) {
+                await matrixClient.redactEvent(roomId, userRepostEventId);
+                setIsReposted(false);
+                setUserRepostEventId(null);
+                setRepostCount(prev => Math.max(0, prev - 1));
+            } else {
+                const res = await matrixClient.sendEvent(roomId, "m.room.message" as any, {
+                    msgtype: "m.text",
+                    body: `♻️ Reposted @${senderName}'s post`,
+                    "m.relates_to": {
+                        rel_type: "m.reference",
+                        event_id: targetEventId
+                    }
+                });
+                setIsReposted(true);
+                setUserRepostEventId(res.event_id);
+                setRepostCount(prev => prev + 1);
+            }
         } catch (error) {
             console.error("Failed to repost", error);
         } finally {
@@ -377,13 +420,26 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800 max-h-[75vh]">
                             <div
                                 className={`cursor-zoom-in ${isLocked ? 'pointer-events-none' : ''}`}
-                                onClick={(e) => { e.stopPropagation(); if (!isLocked && !showWarningOverlay) setLightboxOpen(true); }}
                             >
                                 <MatrixMedia
+                                    mediaItems={customMedia}
                                     mxcUrl={content.url}
                                     alt={body || 'Post image'}
                                     className={`w-full h-full object-cover object-center max-h-[75vh] transition-all duration-300 ${isLocked ? 'blur-2xl scale-110 select-none' : ''}`}
-                                    onBlobReady={(url) => setBlobUrl(url)}
+                                    onBlobReady={(url, idx) => {
+                                        setBlobUrls(prev => {
+                                            const newArr = [...prev];
+                                            newArr[idx || 0] = url;
+                                            return newArr;
+                                        });
+                                    }}
+                                    onClick={(e, idx) => {
+                                        e.stopPropagation();
+                                        if (!isLocked && !showWarningOverlay) {
+                                            setLightboxIndex(idx || 0);
+                                            setLightboxOpen(true);
+                                        }
+                                    }}
                                 />
                             </div>
                             {isLocked && (
@@ -410,7 +466,7 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                     )}
 
                     {/* Video Attachment — authenticated blob fetch */}
-                    {!isRepost && hasVideo && (
+                    {!isRepost && hasVideo && !customMedia && (
                         <div className="relative block mt-1 mb-3 rounded-2xl overflow-hidden border border-neutral-800">
                             <MatrixMedia
                                 mxcUrl={content.url}
@@ -490,9 +546,9 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                                 />
                             )}
                             <ActionIcon
-                                icon={isReposting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className={`w-4 h-4 ${isRepost ? 'text-green-500' : ''}`} />}
+                                icon={isReposting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Repeat className={`w-4 h-4 ${isReposted || isRepost ? 'text-green-500' : ''}`} />}
                                 count={repostCount}
-                                color="group-hover:text-green-500"
+                                color={isReposted || isRepost ? "text-green-500" : "group-hover:text-green-500"}
                                 bg="group-hover:bg-green-500/10"
                                 onClick={handleRepost}
                             />
@@ -544,9 +600,10 @@ export function PostCard({ event, matrixClient, isNested = false, isDetailView =
                 isDeleting={isDeleting}
             />
 
-            {blobUrl && (
+            {blobUrls.length > 0 && (
                 <ImageLightbox
-                    src={blobUrl}
+                    srcs={blobUrls.filter(Boolean)}
+                    initialIndex={lightboxIndex}
                     alt={body || 'Post image'}
                     open={lightboxOpen}
                     onClose={() => setLightboxOpen(false)}

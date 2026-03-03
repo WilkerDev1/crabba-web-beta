@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { MatrixClient } from 'matrix-js-sdk';
 
 const rawMatrixUrl = process.env.NEXT_PUBLIC_MATRIX_HOMESERVER_URL || process.env.NEXT_PUBLIC_MATRIX_BASE_URL as string;
@@ -192,7 +193,7 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
 
             let client: MatrixClient;
 
-            const customFetchFn = (input: string | URL | globalThis.Request, init?: RequestInit) => {
+            const customFetchFn = async (input: string | URL | globalThis.Request, init?: RequestInit) => {
                 const newInit = init || {};
 
                 let fetchUrl = '';
@@ -211,7 +212,15 @@ export const getMatrixClient = async (): Promise<MatrixClient | null> => {
                     };
                 }
 
-                return fetch(input, newInit);
+                const response = await fetch(input, newInit);
+                if (response.status === 401 && !fetchUrl.includes('/login')) {
+                    console.error("🚨 Global Matrix 401 or M_UNKNOWN_TOKEN Intercepted. Forcing session cleanup...");
+                    await clearMatrixSession();
+                    if (typeof window !== 'undefined') {
+                        window.location.reload();
+                    }
+                }
+                return response;
             };
 
             if (accessToken && userId && deviceId) {
@@ -369,12 +378,30 @@ export const clearMatrixSession = async () => {
     globalForMatrix.clientStarted = false;
     globalForMatrix.startPromise = null;
 
-    // Clear ALL Matrix items from localStorage
+    // Clear ALL Matrix and Supabase items from both storage mechanisms
     if (typeof window !== 'undefined') {
-        localStorage.removeItem('matrix_access_token');
-        localStorage.removeItem('matrix_user_id');
-        localStorage.removeItem('matrix_device_id');
-        localStorage.removeItem('matrix_homeserver_url');
+        const exactKeys = [
+            'matrix_access_token',
+            'matrix_user_id',
+            'matrix_device_id',
+            'matrix_homeserver_url',
+            'matrix_guest_token',
+            'supabase.auth.token' // standard supabase key
+        ];
+
+        exactKeys.forEach(key => {
+            localStorage.removeItem(key);
+            sessionStorage.removeItem(key);
+        });
+
+        // Loop to catch dynamic / framework-specific Supabase auth keys (e.g., sb-xxxx-auth-token)
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                localStorage.removeItem(key);
+                i--; // adjust index since we removed an item
+            }
+        }
     }
 };
 
@@ -457,14 +484,15 @@ export const sendEventWithRetry = async (
     }
 };
 
-/**
- * Safely start the Matrix sync client. Uses a promise-based lock to prevent
- * duplicate startClient calls from concurrent React renders or HMR.
- * Auto-heals corrupted IndexedDB stores (prepareLazyLoadingForSync crash).
- */
 export const safeStartClient = async (client: MatrixClient): Promise<void> => {
     // If already running, skip
     if (globalForMatrix.clientStarted && client.clientRunning) {
+        return;
+    }
+
+    // Do not sync if guest
+    if (typeof window !== 'undefined' && client.getAccessToken() === sessionStorage.getItem('matrix_guest_token')) {
+        console.warn('⚠️ safeStartClient aborted: Matrix instance is a guest. Guests should not sync.');
         return;
     }
 

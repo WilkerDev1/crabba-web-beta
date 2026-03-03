@@ -15,7 +15,7 @@ import { Textarea } from '../ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar';
 import { Switch } from '../ui/switch';
 import { Label } from '../ui/label';
-import { Loader2, Image as ImageIcon, X, Lock, Video } from 'lucide-react';
+import { Loader2, Image as ImageIcon, X, Lock, Video, Crop as CropIcon } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { getMatrixClient, sendEventWithRetry } from '../../lib/matrix';
 import { createClient } from '../../lib/supabase/client';
@@ -33,9 +33,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
     const [isPosting, setIsPosting] = useState(false);
     const [hasWarning, setHasWarning] = useState(false);
     const [warningText, setWarningText] = useState('');
-    const [selectedMedia, setSelectedMedia] = useState<File | null>(null);
-    const [mediaPreview, setMediaPreview] = useState<string | null>(null);
-    const [mediaType, setMediaType] = useState<'image' | 'video' | null>(null);
+    const [mediaFiles, setMediaFiles] = useState<File[]>([]);
     const [isDragging, setIsDragging] = useState(false);
     const [accessLevel, setAccessLevel] = useState<string>('public');
     const [price, setPrice] = useState<string>('');
@@ -48,6 +46,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
     const [crop, setCrop] = useState<Crop>();
     const [completedCrop, setCompletedCrop] = useState<PixelCrop | null>(null);
     const cropImgRef = useRef<HTMLImageElement>(null);
+    const [cropIndex, setCropIndex] = useState<number | null>(null);
     const [rawFile, setRawFile] = useState<File | null>(null);
 
     // Auth State
@@ -67,53 +66,51 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         fetchUser();
     }, []);
 
-    /** Core file handler — used by both <input> and drag-and-drop */
-    const handleFile = async (file: File) => {
-        if (selectedMedia) return;
+    const processFiles = async (files: FileList | File[]) => {
+        const selected = Array.from(files);
+        const remainingSlots = 4 - mediaFiles.length;
+        if (remainingSlots <= 0) return;
 
-        const isVideo = file.type.startsWith('video/');
-        const isImage = file.type.startsWith('image/');
+        const filesToAdd: File[] = [];
+        for (const file of selected.slice(0, remainingSlots)) {
+            const isVideo = file.type.startsWith('video/');
+            const isImage = file.type.startsWith('image/');
 
-        if (!isVideo && !isImage) {
-            alert('Formato no soportado. Usa imágenes o videos.');
-            return;
+            if (!isVideo && !isImage) {
+                alert('Formato no soportado. Usa imágenes o videos.');
+                continue;
+            }
+
+            if (isVideo) {
+                try {
+                    const duration = await getVideoDuration(file);
+                    if (duration > 180) {
+                        alert('Video excede el límite de 3 minutos para cuidar el servidor.');
+                        continue;
+                    }
+                } catch (err) {
+                    console.error('Could not read video duration:', err);
+                    alert('No se pudo leer el video. Intenta con otro archivo.');
+                    continue;
+                }
+            }
+            filesToAdd.push(file);
         }
 
-        if (isVideo) {
-            try {
-                const duration = await getVideoDuration(file);
-                if (duration > 180) {
-                    alert('Video excede el límite de 3 minutos para cuidar el servidor.');
-                    return;
-                }
-            } catch (err) {
-                console.error('Could not read video duration:', err);
-                alert('No se pudo leer el video. Intenta con otro archivo.');
-                return;
-            }
-            setMediaType('video');
-            setSelectedMedia(file);
-            setMediaPreview(URL.createObjectURL(file));
-        } else {
-            // Enter crop mode for images
-            setRawFile(file);
-            setCropImageSrc(URL.createObjectURL(file));
-            setCropMode(true);
-            setCrop(undefined);
-            setCompletedCrop(null);
+        if (filesToAdd.length > 0) {
+            setMediaFiles(prev => [...prev, ...filesToAdd]);
         }
     };
 
     const handleMediaSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) await handleFile(file);
+        if (e.target.files) await processFiles(e.target.files);
+        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handleDrop = async (e: React.DragEvent) => {
         e.preventDefault();
         setIsDragging(false);
-        const file = e.dataTransfer.files?.[0];
-        if (file) await handleFile(file);
+        if (e.dataTransfer.files) await processFiles(e.dataTransfer.files);
     };
 
     /** Use HTMLVideoElement to read duration without uploading */
@@ -133,34 +130,35 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         });
     };
 
-    const removeMedia = () => {
-        if (mediaPreview) URL.revokeObjectURL(mediaPreview);
-        setSelectedMedia(null);
-        setMediaPreview(null);
-        setMediaType(null);
+    const removeMedia = (index: number) => {
+        setMediaFiles(prev => prev.filter((_, i) => i !== index));
         if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const initiateCrop = (index: number) => {
+        const file = mediaFiles[index];
+        if (!file || !file.type.startsWith('image/')) return;
+        setRawFile(file);
+        setCropIndex(index);
+        setCropImageSrc(URL.createObjectURL(file));
+        setCropMode(true);
+        setCrop(undefined);
+        setCompletedCrop(null);
     };
 
     /** Apply the crop: draw on canvas → extract as File */
     const applyCrop = useCallback(() => {
         const image = cropImgRef.current;
         if (!image || !rawFile) {
-            // No crop made — use original image as-is
-            if (rawFile) {
-                setMediaType('image');
-                setSelectedMedia(rawFile);
-                setMediaPreview(cropImageSrc);
-            }
             setCropMode(false);
+            setCropIndex(null);
             return;
         }
 
         if (!completedCrop || completedCrop.width === 0 || completedCrop.height === 0) {
-            // No crop selection — use original
-            setMediaType('image');
-            setSelectedMedia(rawFile);
-            setMediaPreview(cropImageSrc);
+            // No crop selection — discard crop attempt
             setCropMode(false);
+            setCropIndex(null);
             return;
         }
 
@@ -188,33 +186,36 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
         canvas.toBlob((blob) => {
             if (!blob || blob.size === 0) {
                 // Fallback to original file if blob is empty/invalid
-                setMediaType('image');
-                setSelectedMedia(rawFile);
-                setMediaPreview(cropImageSrc);
                 setCropMode(false);
+                setCropIndex(null);
                 return;
             }
             const croppedFile = new File([blob], rawFile.name, { type: rawFile.type || 'image/jpeg' });
-            setMediaType('image');
-            setSelectedMedia(croppedFile);
-            setMediaPreview(URL.createObjectURL(croppedFile));
+
+            setMediaFiles(prev => {
+                const newArr = [...prev];
+                if (cropIndex !== null) newArr[cropIndex] = croppedFile;
+                return newArr;
+            });
+
             setCropMode(false);
+            setCropIndex(null);
             if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
         }, rawFile.type || 'image/jpeg', 0.92);
-    }, [completedCrop, rawFile, cropImageSrc]);
+    }, [completedCrop, rawFile, cropImageSrc, cropIndex]);
 
     const cancelCrop = () => {
         if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
         setCropImageSrc(null);
         setCropMode(false);
         setRawFile(null);
+        setCropIndex(null);
         setCrop(undefined);
         setCompletedCrop(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
     };
 
     const handlePost = async () => {
-        if ((!content.trim() && !selectedMedia)) return;
+        if ((!content.trim() && mediaFiles.length === 0)) return;
 
         setIsPosting(true);
         try {
@@ -336,7 +337,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
             };
 
             // If it's just text
-            if (!selectedMedia) {
+            if (mediaFiles.length === 0) {
                 let body = content;
                 if (hasWarning) {
                     body = `[Content Warning: ${warningText || 'Sensitive Content'}]\n\n${content}`;
@@ -350,30 +351,54 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
             } else {
                 // Media Upload Flow (Image or Video)
-                if (selectedMedia.size === 0) {
-                    alert("Error: El archivo de imagen está vacío o corrupto. Por favor, intenta subirlo de nuevo.");
+                const mediaArray: Array<{ url: string; type: string; info: any }> = [];
+
+                try {
+                    const uploadPromises = mediaFiles.map(async (file) => {
+                        if (file.size === 0) {
+                            console.warn("Empty file detected, skipping:", file.name);
+                            return null;
+                        }
+                        try {
+                            const response = await matrixClient.uploadContent(file);
+                            return {
+                                url: response.content_uri,
+                                type: file.type,
+                                info: { mimetype: file.type, size: file.size }
+                            };
+                        } catch (err) {
+                            console.error("Failed to upload file:", file.name, err);
+                            return null;
+                        }
+                    });
+                    const results = await Promise.all(uploadPromises);
+                    const successfulUploads = results.filter(Boolean) as Array<{ url: string; type: string; info: any }>;
+
+                    if (successfulUploads.length === 0) {
+                        throw new Error("All media uploads failed.");
+                    }
+                    mediaArray.push(...successfulUploads);
+                } catch (err) {
+                    alert("Error: Falló la subida de medios. Por favor intenta de nuevo.");
                     setIsPosting(false);
                     return;
                 }
-                const response = await matrixClient.uploadContent(selectedMedia);
-                const contentUri = response.content_uri;
 
-                let body = selectedMedia.name;
+                let body = mediaFiles.length === 1 ? mediaFiles[0].name : "Media files";
                 if (content.trim()) body = content;
                 if (hasWarning) {
                     body = `[Content Warning: ${warningText || 'Sensitive Content'}]\n\n${body}`;
                 }
 
-                const isVideo = mediaType === 'video';
-                const mediaPayload = buildPayload({
-                    msgtype: isVideo ? "m.video" : "m.image",
+                const baseMsg: any = {
+                    msgtype: mediaArray[0].type.startsWith("video") ? "m.video" : "m.image",
                     body: body,
-                    url: contentUri,
-                    info: {
-                        mimetype: selectedMedia.type,
-                        size: selectedMedia.size
-                    }
-                });
+                    url: mediaArray[0].url,
+                    info: mediaArray[0].info,
+                    'crabba.media': mediaArray
+                };
+
+                const mediaPayload = buildPayload(baseMsg);
                 await sendEventWithRetry(currentRoomId, "m.room.message", mediaPayload);
             }
 
@@ -383,7 +408,7 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
             setAccessLevel('public');
             setPrice('');
             setCollectionId('none');
-            removeMedia();
+            setMediaFiles([]);
             setOpen(false);
             if (onPostCreated) onPostCreated();
         } catch (error) {
@@ -456,24 +481,43 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                             </div>
                         )}
 
-                        {!cropMode && mediaPreview && (
-                            <div className="relative rounded-xl overflow-hidden border border-neutral-800 bg-neutral-900 group">
-                                {mediaType === 'video' ? (
-                                    <video src={mediaPreview} className="w-full max-h-[350px] object-contain rounded-xl" controls preload="metadata" />
-                                ) : (
-                                    <img src={mediaPreview} alt="Preview" className="w-full max-h-[350px] object-cover rounded-xl" />
-                                )}
-                                <button
-                                    onClick={removeMedia}
-                                    className="absolute top-2 right-2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white backdrop-blur-sm transition-colors z-10"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
+                        {!cropMode && mediaFiles.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {mediaFiles.map((file, idx) => (
+                                    <div key={idx} className="relative w-24 h-24 rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 group">
+                                        {file.type.startsWith('video') ? (
+                                            <video src={URL.createObjectURL(file)} className="w-full h-full object-cover" />
+                                        ) : (
+                                            <img src={URL.createObjectURL(file)} className="w-full h-full object-cover" alt="Preview" />
+                                        )}
+
+                                        <div className="absolute top-1 right-1 flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {file.type.startsWith('image') && (
+                                                <button
+                                                    onClick={() => initiateCrop(idx)}
+                                                    className="p-1.5 bg-black/60 hover:bg-black/80 rounded-full text-white backdrop-blur-sm transition-colors"
+                                                    disabled={isPosting}
+                                                    title="Crop Image"
+                                                >
+                                                    <CropIcon className="w-3.5 h-3.5" />
+                                                </button>
+                                            )}
+                                            <button
+                                                onClick={() => removeMedia(idx)}
+                                                className="p-1.5 bg-black/60 hover:bg-black/80 rounded-full text-white backdrop-blur-sm transition-colors"
+                                                disabled={isPosting}
+                                                title="Remove"
+                                            >
+                                                <X className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                         )}
 
                         {/* Drag-and-drop hint */}
-                        {isDragging && !mediaPreview && (
+                        {isDragging && mediaFiles.length === 0 && (
                             <div className="flex items-center justify-center h-32 border-2 border-dashed border-orange-500 rounded-xl bg-orange-500/10 text-orange-400 text-sm font-medium">
                                 Suelta tu archivo aquí
                             </div>
@@ -504,13 +548,14 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
                                 className="hidden"
                                 accept="image/*,video/*,.mp4,.mov,.webm,.mkv"
                                 onChange={handleMediaSelect}
+                                multiple
                             />
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="text-orange-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-full"
+                                className="text-orange-500 hover:text-orange-400 hover:bg-orange-500/10 rounded-full disabled:opacity-50"
                                 onClick={() => fileInputRef.current?.click()}
-                                disabled={isPosting || selectedMedia !== null || cropMode}
+                                disabled={isPosting || mediaFiles.length >= 4 || cropMode}
                                 title="Add Image or Video"
                             >
                                 <ImageIcon className="w-5 h-5" />
@@ -563,8 +608,8 @@ export function ComposePostModal({ children, defaultRoomId, onPostCreated, reply
 
                     <Button
                         onClick={handlePost}
-                        disabled={(!content.trim() && !selectedMedia) || isPosting || (hasWarning && !warningText.trim())}
-                        className="rounded-full bg-orange-600 hover:bg-orange-700 font-bold px-8"
+                        disabled={(!content.trim() && mediaFiles.length === 0) || isPosting || (hasWarning && !warningText.trim())}
+                        className="rounded-full bg-orange-600 hover:bg-orange-700 font-bold px-8 disabled:opacity-50"
                     >
                         {isPosting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Post'}
                     </Button>

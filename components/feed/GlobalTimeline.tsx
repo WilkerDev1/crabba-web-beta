@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import type { MatrixClient } from 'matrix-js-sdk';
 import { getMatrixClient, getSharedClient, guestFetch } from '@/lib/matrix';
 import { PostCard } from './PostCard';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,6 +12,20 @@ import { RefreshCcw, Loader2, Flame, Clock, AlertTriangle } from 'lucide-react';
 
 // Public Room ID
 const ROOM_ID = process.env.NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID || '!iyDNoJTahsHwSkiukz:localhost';
+
+export interface MatrixEventLike {
+    getId: () => string | undefined;
+    getType: () => string | undefined;
+    getSender: () => string | undefined;
+    getContent: () => Record<string, unknown>;
+    getTs: () => number;
+    getRoomId: () => string | undefined;
+    isRedacted: () => boolean;
+    getDate: () => Date | null;
+    event?: Record<string, unknown>;
+    status?: string | null;
+    getAssociatedId?: () => string | undefined;
+}
 
 // ─── Trending Algorithm (Hacker News Gravity Model) ───
 // Score = (likes*1 + reposts*2 + replies*2) / (ageHours ^ GRAVITY)
@@ -43,19 +58,18 @@ interface GlobalTimelineProps {
 }
 
 export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, filterThreadId, filterHashtag, rootOnly = false, showTabs = false }: GlobalTimelineProps) {
-    const [events, setEvents] = useState<any[]>([]);
+    const [events, setEvents] = useState<MatrixEventLike[]>([]);
     const [loading, setLoading] = useState(true);
     const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [roomError, setRoomError] = useState<string | null>(null);
-    const [client, setClient] = useState<any>(null);
+    const [client, setClient] = useState<MatrixClient | null>(null);
     const [refreshTrigger, setRefreshTrigger] = useState(0);
     const observerTarget = useRef<HTMLDivElement>(null);
     const [activeTab, setActiveTab] = useState<'recientes' | 'tendencias'>('recientes');
 
-    // Interaction cache: eventId → {likes, reposts, replies}
     const [interactionCache, setInteractionCache] = useState<Map<string, InteractionCounts>>(new Map());
     const [cacheFetching, setCacheFetching] = useState(false);
     // Version counter — incremented every time cache updates to trigger useMemo reactivity
@@ -93,9 +107,9 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                     const data = await guestFetch(baseUrl, `/_matrix/client/v3/rooms/${encodedRoomId}/messages?dir=b&limit=50`);
 
                     // Convert raw JSON events into a shape compatible with our PostCard
-                    const rawEvents = (data.chunk || []).filter((ev: any) => {
+                    const rawEvents = (data.chunk || []).filter((ev: Record<string, unknown>) => {
                         if (ev.type !== 'm.room.message') return false;
-                        const content = ev.content || {};
+                        const content = (ev.content as Record<string, unknown>) || {};
 
                         if (filterUserId && ev.sender !== filterUserId) return false;
 
@@ -105,7 +119,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         }
 
                         if (rootOnly) {
-                            const relatesTo = content['m.relates_to'];
+                            const relatesTo = content['m.relates_to'] as Record<string, unknown>;
                             if (relatesTo) {
                                 const isRepost = relatesTo.rel_type === 'm.reference';
                                 const isThreadReply = relatesTo.rel_type === 'm.thread';
@@ -115,20 +129,21 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         }
 
                         if (filterHashtag) {
-                            const body = content.body || '';
+                            const body = String(content.body || '');
                             if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
                         }
 
                         if (searchQuery) {
-                            const body = content.body || '';
+                            const body = String(content.body || '');
                             if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
                         }
 
                         if (filterThreadId) {
-                            const relatesTo = content['m.relates_to'];
+                            const relatesTo = content['m.relates_to'] as Record<string, unknown>;
                             if (!relatesTo) return false;
                             const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
-                            const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+                            const inReplyTo = relatesTo['m.in_reply_to'] as Record<string, unknown> | undefined;
+                            const isDirectReply = inReplyTo?.event_id === filterThreadId;
                             if (!isThreadMember && !isDirectReply) return false;
                         }
 
@@ -136,7 +151,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                     });
 
                     // Wrap raw events in a lightweight adapter that PostCard can consume
-                    const wrappedEvents = rawEvents.map((ev: any) => ({
+                    const wrappedEvents = rawEvents.map((ev: { event_id?: string, type?: string, sender?: string, content?: Record<string, unknown>, origin_server_ts?: number, room_id?: string }) => ({
                         getId: () => ev.event_id,
                         getType: () => ev.type,
                         getSender: () => ev.sender,
@@ -149,12 +164,13 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                         status: null,
                     }));
 
-                    setEvents(wrappedEvents);
+                    setEvents(wrappedEvents as unknown as MatrixEventLike[]);
                     setHasMore(false); // Guests get one page
-                } catch (guestErr: any) {
+                } catch (guestErr: unknown) {
                     console.error('[GlobalTimeline] Guest fetch error:', guestErr);
+                    const errObj = guestErr as Record<string, unknown>;
 
-                    const isAuthError = guestErr?.message?.includes('401') || guestErr?.message?.includes('token');
+                    const isAuthError = String(errObj?.message || '').includes('401') || String(errObj?.message || '').includes('token');
                     if (isAuthError) {
                         console.warn("[GlobalTimeline] Guest token invalid. Waiting for auto-recovery...");
                         shouldKeepLoading = true;
@@ -164,6 +180,70 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 }
             } else {
                 // ─── AUTHENTICATED MODE: Use SDK sync + room timeline ───
+
+                // ─── NATIVE MATRIX SEARCH (Fast-Path) ───
+                if (filterHashtag || searchQuery) {
+                    setLoadingMessage("Searching global network...");
+                    const token = matrixClient.getAccessToken();
+                    const baseUrl = matrixClient.getHomeserverUrl();
+                    const rawSearchTerm = filterHashtag ? `#${filterHashtag}` : (searchQuery || '');
+
+                    const isHashtag = rawSearchTerm.startsWith('#');
+                    const searchTerm = isHashtag ? rawSearchTerm.substring(1) : rawSearchTerm;
+
+                    const res = await fetch(`${baseUrl}/_matrix/client/v3/search`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            search_categories: {
+                                room_events: {
+                                    search_term: searchTerm,
+                                    keys: ["content.body"],
+                                    filter: { rooms: [ROOM_ID] },
+                                    order_by: "recent"
+                                }
+                            }
+                        })
+                    });
+
+                    if (!res.ok) {
+                        throw new Error(`Search failed: ${res.status}`);
+                    }
+
+                    const data = await res.json();
+                    const searchResults = (data.search_categories?.room_events?.results || []).map((r: { result: unknown }) => r.result);
+
+                    // FTS Tokenization Fix: Matrix full text search ignores punctuation like '#'.
+                    // We must filter the results strictly to ensure the complete '#hashtag' is in the body.
+                    const filteredResults = isHashtag
+                        ? searchResults.filter((ev: Record<string, unknown>) => {
+                            const content = ev?.content as Record<string, unknown> | undefined;
+                            const body = String(content?.body || '');
+                            return body.toLowerCase().includes(rawSearchTerm.toLowerCase());
+                        })
+                        : searchResults;
+
+                    const wrappedEvents = filteredResults.map((ev: { event_id?: string, type?: string, sender?: string, content?: Record<string, unknown>, origin_server_ts?: number, room_id?: string }) => ({
+                        getId: () => ev.event_id,
+                        getType: () => ev.type,
+                        getSender: () => ev.sender,
+                        getContent: () => ev.content || {},
+                        getTs: () => ev.origin_server_ts || 0,
+                        getRoomId: () => ev.room_id || ROOM_ID,
+                        isRedacted: () => false,
+                        getDate: () => new Date(ev.origin_server_ts || 0),
+                        event: ev,
+                        status: null,
+                    }));
+
+                    setEvents(wrappedEvents as unknown as MatrixEventLike[]);
+                    setHasMore(false); // Matrix /search combines all results
+                    setLoadingMessage(null);
+                    return; // Bypass normal timeline sync
+                }
 
                 // Instant Cache Access - Always check room FIRST
                 let room = matrixClient.getRoom(ROOM_ID);
@@ -203,10 +283,12 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
                         const cleanup = () => {
                             clearInterval(pollInterval);
-                            matrixClient.removeListener("sync" as any, syncListener);
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (matrixClient as any).removeListener("sync", syncListener);
                         };
 
-                        matrixClient.on("sync" as any, syncListener);
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (matrixClient as any).on("sync", syncListener);
                         checkSync();
                     });
 
@@ -222,20 +304,22 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                     try {
                         await matrixClient.joinRoom(ROOM_ID);
                         room = matrixClient.getRoom(ROOM_ID);
-                    } catch (joinError: any) {
-                        const errCode = joinError?.data?.errcode || joinError?.errcode || '';
-                        const errMsg = joinError?.data?.error || joinError?.message || String(joinError);
+                    } catch (joinError: unknown) {
+                        const errObj = joinError as Record<string, unknown>;
+                        const dataObj = errObj?.data as Record<string, unknown> | undefined;
+                        const errCode = dataObj?.errcode || errObj?.errcode || '';
+                        const errMsg = dataObj?.error || errObj?.message || String(joinError);
                         console.error(`[GlobalTimeline] Failed to join room:`, errCode, errMsg);
 
                         // If it's an auth error or token error, skip the noisy screen and wait for background sync
-                        if (errCode === 'M_UNKNOWN_TOKEN' || errMsg.toLowerCase().includes('token') || errCode === 'M_GUEST_ACCESS_FORBIDDEN' || errCode === 'M_FORBIDDEN') {
+                        if (errCode === 'M_UNKNOWN_TOKEN' || String(errMsg).toLowerCase().includes('token') || errCode === 'M_GUEST_ACCESS_FORBIDDEN' || errCode === 'M_FORBIDDEN') {
                             console.warn("[GlobalTimeline] Auth token invalid or forbidden down sync. Waiting for auto-recovery...");
                             shouldKeepLoading = true;
                             setLoadingMessage(null);
                             return;
                         }
 
-                        setRoomError(`${errCode ? errCode + ': ' : ''}${errMsg}`);
+                        setRoomError(`${errCode ? String(errCode) + ': ' : ''}${errMsg}`);
                         setLoadingMessage(null);
                         return;
                     }
@@ -244,11 +328,12 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 if (room) {
                     // Room already synced
                     const timeline = room.getLiveTimeline();
-                    const events = timeline.getEvents().slice(-100).reverse();
-                    const messageEvents = events.filter((e: any) => {
-                        if (e.isRedacted() || e.getType() === 'm.room.redaction') return false;
+                    const events = timeline.getEvents().reverse(); // Fetch all currently loaded and reverse
+                    const messageEvents = events.filter((e) => {
+                        const mlEvent = e as unknown as MatrixEventLike;
+                        if (mlEvent.isRedacted() || mlEvent.getType() === 'm.room.redaction') return false;
 
-                        const isMsg = e.getType() === 'm.room.message';
+                        const isMsg = mlEvent.getType() === 'm.room.message';
                         if (!isMsg) return false;
 
                         if (filterUserId && e.getSender() !== filterUserId) return false;
@@ -284,15 +369,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                             if (!isThreadMember && !isDirectReply) return false;
                         }
 
-                        if (searchQuery) {
-                            const body = content.body || '';
-                            if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-                        }
-
-                        if (filterHashtag) {
-                            const body = content.body || '';
-                            if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
-                        }
+                        // Search and Hashtag filters are now handled natively above
+                        // so we don't need them in the local timeline filter loop.
 
                         return true;
                     });
@@ -302,13 +380,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 }
             }
 
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error('Error fetching messages:', err);
+            const errObj = err as Record<string, unknown>;
+            const dataObj = errObj?.data as Record<string, unknown> | undefined;
 
-            const errCode = err?.data?.errcode || err?.errcode || '';
-            const errMsg = err?.message || String(err);
+            const errCode = dataObj?.errcode || errObj?.errcode || '';
+            const errMsg = String(errObj?.message || String(err));
 
-            if (err.isFatal || errMsg.includes('FatalAuthError') || errCode === 'M_UNKNOWN_TOKEN' || errMsg.toLowerCase().includes('token')) {
+            if (errObj.isFatal || errMsg.includes('FatalAuthError') || errCode === 'M_UNKNOWN_TOKEN' || errMsg.toLowerCase().includes('token')) {
                 console.warn("[GlobalTimeline] Auth token likely invalid, waiting for background auto-recovery...");
                 shouldKeepLoading = true;
                 return;
@@ -324,21 +404,23 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     useEffect(() => {
         fetchMessages();
-    }, [refreshTrigger, filterHashtag]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [refreshTrigger, filterHashtag, searchQuery]);
 
     // ─── Real-Time Event Listener ───
     useEffect(() => {
         if (!client) return;
 
-        const onTimeline = (event: any, room: any, toStartOfTimeline: boolean) => {
+        const onTimeline = (event: MatrixEventLike, room: unknown, toStartOfTimeline: boolean) => {
             // Only care about events in our room, appended to the END (not backfill)
-            if (room?.roomId !== ROOM_ID || toStartOfTimeline) return;
+            const roomObj = room as { roomId?: string };
+            if (roomObj?.roomId !== ROOM_ID || toStartOfTimeline) return;
 
             // Handle redactions: remove the target event from UI
             if (event.getType() === 'm.room.redaction') {
                 const redactedId = event.getAssociatedId?.() || event.event?.redacts;
                 if (redactedId) {
-                    setEvents(prev => prev.filter((e: any) => e.getId() !== redactedId));
+                    setEvents(prev => prev.filter((e: MatrixEventLike) => e.getId() !== redactedId));
                 }
                 return;
             }
@@ -353,7 +435,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
             if (filterUserId && event.getSender() !== filterUserId) return;
 
             if (rootOnly) {
-                const relatesTo = content['m.relates_to'];
+                const relatesTo = content['m.relates_to'] as Record<string, unknown>;
                 if (relatesTo) {
                     const isRepost = relatesTo.rel_type === 'm.reference';
                     const isThreadReply = relatesTo.rel_type === 'm.thread';
@@ -368,34 +450,36 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
             }
 
             if (filterThreadId) {
-                const relatesTo = content['m.relates_to'];
+                const relatesTo = content['m.relates_to'] as Record<string, unknown>;
                 if (!relatesTo) return;
                 const isThreadMember = relatesTo.rel_type === 'm.thread' && relatesTo.event_id === filterThreadId;
-                const isDirectReply = relatesTo['m.in_reply_to']?.event_id === filterThreadId;
+                const inReplyTo = relatesTo['m.in_reply_to'] as Record<string, unknown> | undefined;
+                const isDirectReply = inReplyTo?.event_id === filterThreadId;
                 if (!isThreadMember && !isDirectReply) return;
             }
 
             if (searchQuery) {
-                const body = content.body || '';
+                const body = (content.body as string) || '';
                 if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return;
             }
 
             if (filterHashtag) {
-                const body = content.body || '';
+                const body = String(content?.body || '');
                 if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return;
             }
 
             // Prepend (newest first) — avoid duplicates by event ID
             setEvents(prev => {
                 const eventId = event.getId();
-                if (prev.some((e: any) => e.getId() === eventId)) return prev;
+                if (prev.some((e: MatrixEventLike) => e.getId() === eventId)) return prev;
                 return [event, ...prev];
             });
         };
 
-        client.on('Room.timeline' as any, onTimeline);
+        const matrixClientEmitter = client as { on: (...args: unknown[]) => void, removeListener: (...args: unknown[]) => void };
+        matrixClientEmitter.on('Room.timeline', onTimeline);
         return () => {
-            client.removeListener('Room.timeline' as any, onTimeline);
+            matrixClientEmitter.removeListener('Room.timeline', onTimeline);
         };
     }, [client, filterUserId, filterType, filterThreadId, searchQuery, filterHashtag, rootOnly]);
 
@@ -410,18 +494,24 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         const roomId = ROOM_ID;
 
         // Only fetch for events we don't have cached yet
-        const uncached = events.filter(e => !newCache.has(e.getId()));
+        const uncached = events.filter(e => {
+            const id = e.getId();
+            return id ? !newCache.has(id) : false;
+        });
 
         // Batch in chunks of 10 to avoid hammering the server
         for (let i = 0; i < uncached.length; i += 10) {
             const chunk = uncached.slice(i, i + 10);
-            await Promise.allSettled(chunk.map(async (event: any) => {
+            await Promise.allSettled(chunk.map(async (event: MatrixEventLike) => {
                 const eventId = event.getId();
+                if (!eventId) return; // Must have an ID
                 try {
+                    const safeEventId = eventId as string;
+                    const safeRoomId = roomId as string;
                     const [reactions, threads, reposts] = await Promise.allSettled([
-                        client.relations(roomId, eventId, "m.annotation", "m.reaction"),
-                        client.relations(roomId, eventId, "m.thread", "m.room.message"),
-                        client.relations(roomId, eventId, "m.reference", "m.room.message"),
+                        client.relations(safeRoomId, safeEventId, "m.annotation", "m.reaction"),
+                        client.relations(safeRoomId, safeEventId, "m.thread", "m.room.message"),
+                        client.relations(safeRoomId, safeEventId, "m.reference", "m.room.message"),
                     ]);
 
                     newCache.set(eventId, {
@@ -438,6 +528,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         setInteractionCache(newCache);
         setMetricsVersion(v => v + 1); // Force useMemo to re-compute
         setCacheFetching(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [client, events, cacheFetching]);
 
     // Fetch interaction counts when switching to Tendencias or on initial load
@@ -445,6 +536,7 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         if (activeTab === 'tendencias' && events.length > 0 && client) {
             fetchInteractionCounts();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, events.length, client]);
 
     // ─── Display Events (sorted by active tab) ───
@@ -458,14 +550,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
         // Tendencias: sort a COPY by trending score
         return [...events].sort((a, b) => {
-            const aId = a.getId();
-            const bId = b.getId();
+            const aId = a.getId() || '';
+            const bId = b.getId() || '';
             const aInteractions = interactionCache.get(aId) || { likes: 0, reposts: 0, replies: 0 };
             const bInteractions = interactionCache.get(bId) || { likes: 0, reposts: 0, replies: 0 };
             const aScore = computeTrendingScore(aInteractions, a.getTs());
             const bScore = computeTrendingScore(bInteractions, b.getTs());
             return bScore - aScore; // highest score first
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, events, interactionCache, metricsVersion]);
 
     const loadMore = useCallback(async () => {
@@ -518,10 +611,6 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         return () => observer.disconnect();
     }, [hasMore, loadingMore, loading, loadMore]);
 
-    const handleRefresh = () => {
-        setRefreshTrigger(prev => prev + 1);
-    };
-
     if (loadingMessage) {
         return (
             <div className="p-12 flex flex-col items-center justify-center text-neutral-500 space-y-4">
@@ -549,19 +638,16 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     if (roomError) {
         return (
-            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4">
-                <AlertTriangle className="w-12 h-12 text-amber-500" />
-                <h2 className="text-lg font-bold text-red-400">Error al acceder a la sala global</h2>
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[50vh]">
+                <div className="bg-orange-500/10 p-4 rounded-full mb-2">
+                    <Loader2 className="w-10 h-10 text-orange-500 animate-spin" />
+                </div>
+                <h2 className="text-xl font-bold text-white">Setting up your timeline...</h2>
                 <p className="text-sm text-neutral-400 max-w-md">
-                    El servidor Matrix rechazó la conexión a la sala. Es posible que el ID de la sala en las variables de entorno
-                    (<code className="text-xs bg-neutral-800 px-1 py-0.5 rounded">NEXT_PUBLIC_MATRIX_GLOBAL_ROOM_ID</code>) sea incorrecto,
-                    que la sala haya sido eliminada, o que sea privada.
+                    We&apos;re connecting you to the decentralized network. This usually takes just a few seconds. If it doesn&apos;t load automatically, please kindly refresh the page.
                 </p>
-                <code className="text-xs text-neutral-600 font-mono bg-neutral-900 px-3 py-2 rounded max-w-md break-all">
-                    {roomError}
-                </code>
-                <Button onClick={() => { setRoomError(null); fetchMessages(); }} variant="outline" className="mt-2">
-                    <RefreshCcw className="mr-2 w-4 h-4" /> Reintentar
+                <Button onClick={() => window.location.reload()} className="mt-4 bg-orange-600 hover:bg-orange-700 text-white rounded-full px-6">
+                    <RefreshCcw className="mr-2 w-4 h-4" /> Refresh Page
                 </Button>
             </div>
         );
@@ -569,10 +655,11 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
 
     if (error) {
         return (
-            <div className="p-8 text-center text-red-500">
-                <p className="mb-4 font-bold">{error}</p>
+            <div className="p-8 flex flex-col items-center justify-center text-center space-y-4 min-h-[50vh]">
+                <AlertTriangle className="w-10 h-10 text-amber-500 mb-2" />
+                <p className="font-bold text-white max-w-xs">{error}</p>
                 {!error.includes('Authentication Failed') && (
-                    <Button onClick={fetchMessages} variant="outline">
+                    <Button onClick={fetchMessages} variant="outline" className="mt-2 rounded-full px-6">
                         <RefreshCcw className="mr-2 w-4 h-4" /> Try Again
                     </Button>
                 )}
@@ -580,10 +667,11 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         );
     }
 
-    if (events.length === 0) {
+    // Only return early if we genuinely have no events AND no more history to check
+    if (events.length === 0 && !hasMore) {
         return (
             <div className="p-12 text-center text-neutral-500">
-                {filterUserId ? "This user hasn't posted anything yet." : "No messages found in this room."}
+                {filterUserId ? "This user hasn't posted anything yet." : "No matching posts found in the timeline."}
             </div>
         )
     }
@@ -595,15 +683,15 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 <PostCard key={event.getId()} event={event} matrixClient={client} />
             ))}
 
-            <div ref={observerTarget} className="py-8 text-center text-neutral-500 text-sm">
+            <div ref={observerTarget} className="py-8 text-center text-neutral-500 text-sm flex flex-col items-center justify-center">
                 {loadingMore && (
                     <div className="flex items-center justify-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin" />
                         <span>Loading more posts...</span>
                     </div>
                 )}
-                {!hasMore && events.length > 0 && (
-                    <span>You've reached the beginning of the timeline.</span>
+                {!hasMore && events.length > 0 && !(filterHashtag || searchQuery) && (
+                    <span className="mt-4">You&apos;ve reached the beginning of the timeline.</span>
                 )}
             </div>
         </>
