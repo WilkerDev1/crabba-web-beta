@@ -24,16 +24,19 @@ export function TrendingTopics() {
     const [isGuest, setIsGuest] = useState(false);
 
     useEffect(() => {
+        let mounted = true;
+        let lastToken = localStorage.getItem('matrix_access_token');
+        let lastGuest = localStorage.getItem('matrix_guest_token');
+
         const extractHashtags = async () => {
             const token = localStorage.getItem('matrix_access_token');
             const guestToken = localStorage.getItem('matrix_guest_token');
 
-            // If the user has no token or explicitly has a guest token, mark as guest and abort fetch
             if (!token || guestToken) {
-                setIsGuest(true);
+                if (mounted) setIsGuest(true);
                 return;
             }
-            setIsGuest(false);
+            if (mounted) setIsGuest(false);
 
             try {
                 // Check cache first (2 minute expiration)
@@ -42,7 +45,7 @@ export function TrendingTopics() {
                     try {
                         const cache = JSON.parse(cacheStr);
                         if (Date.now() - cache.timestamp < 120_000 && cache.tags?.length > 0) {
-                            setTags(cache.tags);
+                            if (mounted) setTags(cache.tags);
                             return;
                         }
                     } catch {
@@ -92,7 +95,7 @@ export function TrendingTopics() {
                     .map(([tag, count]) => ({ tag, count }));
 
                 if (sorted.length > 0) {
-                    setTags(sorted);
+                    if (mounted) setTags(sorted);
                     // Update cache
                     sessionStorage.setItem('trending_tags_cache', JSON.stringify({
                         timestamp: Date.now(),
@@ -104,11 +107,40 @@ export function TrendingTopics() {
             }
         };
 
+        const checkAuth = () => {
+            const currentToken = localStorage.getItem('matrix_access_token');
+            const currentGuest = localStorage.getItem('matrix_guest_token');
+
+            // If token state changed (e.g. user logged in or out)
+            if (currentToken !== lastToken || currentGuest !== lastGuest) {
+                lastToken = currentToken;
+                lastGuest = currentGuest;
+                extractHashtags(); // Re-run immediately on auth change
+            }
+        };
+
+        // Initial extraction
         extractHashtags();
 
-        // Re-extract every 60s
-        const interval = setInterval(extractHashtags, 60_000);
-        return () => clearInterval(interval);
+        // Listen for standard storage events (cross-tab)
+        window.addEventListener('storage', checkAuth);
+
+        // Polling loop for same-tab auth detection (1 second) and cache refresh (60 seconds via modulo)
+        let ticks = 0;
+        const interval = setInterval(() => {
+            checkAuth();
+            ticks++;
+            if (ticks >= 60) {
+                extractHashtags();
+                ticks = 0;
+            }
+        }, 1000);
+
+        return () => {
+            mounted = false;
+            window.removeEventListener('storage', checkAuth);
+            clearInterval(interval);
+        };
     }, []);
 
     return (

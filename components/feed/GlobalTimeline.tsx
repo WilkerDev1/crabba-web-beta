@@ -75,13 +75,6 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
     // Version counter — incremented every time cache updates to trigger useMemo reactivity
     const [metricsVersion, setMetricsVersion] = useState(0);
 
-    const [autoFetchCount, setAutoFetchCount] = useState(0);
-
-    // Reset auto-fetch count when filters change
-    useEffect(() => {
-        setAutoFetchCount(0);
-    }, [filterHashtag, searchQuery, filterUserId, filterThreadId, filterType]);
-
     const fetchMessages = async () => {
         // Only set loading on first load to avoid flickering on refresh
         if (events.length === 0) setLoading(true);
@@ -187,6 +180,57 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 }
             } else {
                 // ─── AUTHENTICATED MODE: Use SDK sync + room timeline ───
+
+                // ─── NATIVE MATRIX SEARCH (Fast-Path) ───
+                if (filterHashtag || searchQuery) {
+                    setLoadingMessage("Searching global network...");
+                    const token = matrixClient.getAccessToken();
+                    const baseUrl = matrixClient.getHomeserverUrl();
+                    const searchTerm = filterHashtag ? `#${filterHashtag}` : searchQuery;
+
+                    const res = await fetch(`${baseUrl}/_matrix/client/v3/search`, {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            search_categories: {
+                                room_events: {
+                                    search_term: searchTerm,
+                                    keys: ["content.body"],
+                                    filter: { rooms: [ROOM_ID] },
+                                    order_by: "recent"
+                                }
+                            }
+                        })
+                    });
+
+                    if (!res.ok) {
+                        throw new Error(`Search failed: ${res.status}`);
+                    }
+
+                    const data = await res.json();
+                    const searchResults = (data.search_categories?.room_events?.results || []).map((r: { result: unknown }) => r.result);
+
+                    const wrappedEvents = searchResults.map((ev: { event_id?: string, type?: string, sender?: string, content?: Record<string, unknown>, origin_server_ts?: number, room_id?: string }) => ({
+                        getId: () => ev.event_id,
+                        getType: () => ev.type,
+                        getSender: () => ev.sender,
+                        getContent: () => ev.content || {},
+                        getTs: () => ev.origin_server_ts || 0,
+                        getRoomId: () => ev.room_id || ROOM_ID,
+                        isRedacted: () => false,
+                        getDate: () => new Date(ev.origin_server_ts || 0),
+                        event: ev,
+                        status: null,
+                    }));
+
+                    setEvents(wrappedEvents as unknown as MatrixEventLike[]);
+                    setHasMore(false); // Matrix /search combines all results
+                    setLoadingMessage(null);
+                    return; // Bypass normal timeline sync
+                }
 
                 // Instant Cache Access - Always check room FIRST
                 let room = matrixClient.getRoom(ROOM_ID);
@@ -312,15 +356,8 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                             if (!isThreadMember && !isDirectReply) return false;
                         }
 
-                        if (searchQuery) {
-                            const body = content.body || '';
-                            if (!body.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-                        }
-
-                        if (filterHashtag) {
-                            const body = content.body || '';
-                            if (!body.toLowerCase().includes(`#${filterHashtag.toLowerCase()}`)) return false;
-                        }
+                        // Search and Hashtag filters are now handled natively above
+                        // so we don't need them in the local timeline filter loop.
 
                         return true;
                     });
@@ -544,16 +581,6 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
         }
     }, [client, hasMore, loadingMore]);
 
-    // Auto-fetch if filtered results are sparse and we still have history to check
-    useEffect(() => {
-        const isFiltered = !!(filterHashtag || searchQuery || filterUserId || filterThreadId || filterType !== 'all');
-        // Stop automatically after 20 deep fetches (400 messages deep) to prevent infinite loops
-        if (isFiltered && events.length < 5 && hasMore && !loading && !loadingMore && autoFetchCount < 20) {
-            setAutoFetchCount(prev => prev + 1);
-            loadMore();
-        }
-    }, [events.length, hasMore, loading, loadingMore, loadMore, filterHashtag, searchQuery, filterUserId, filterThreadId, filterType, autoFetchCount]);
-
     useEffect(() => {
         const observer = new IntersectionObserver(
             entries => {
@@ -647,18 +674,10 @@ export function GlobalTimeline({ filterUserId, filterType = 'all', searchQuery, 
                 {loadingMore && (
                     <div className="flex items-center justify-center gap-2">
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{events.length === 0 ? "Searching deeper historically..." : "Loading more posts..."}</span>
+                        <span>Loading more posts...</span>
                     </div>
                 )}
-                {!loadingMore && hasMore && events.length < 5 && autoFetchCount >= 20 && (
-                    <div className="mt-4 flex flex-col items-center">
-                        <p className="mb-4">No recent matches found. Keep searching?</p>
-                        <button onClick={() => { setAutoFetchCount(0); loadMore(); }} className="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-white rounded-full transition-colors text-xs font-bold">
-                            Search Older Posts
-                        </button>
-                    </div>
-                )}
-                {!hasMore && events.length > 0 && (
+                {!hasMore && events.length > 0 && !(filterHashtag || searchQuery) && (
                     <span className="mt-4">You&apos;ve reached the beginning of the timeline.</span>
                 )}
             </div>
