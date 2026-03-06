@@ -57,7 +57,7 @@ export default function LandingClient() {
             <nav className="relative z-30 flex items-center justify-between px-6 py-5 max-w-6xl mx-auto">
                 <div className="flex items-center gap-3">
                     <div className="w-10 h-10 flex items-center justify-center drop-shadow-lg">
-                        <Image src="/crabba-logo.png" alt="Crabba Logo" width={40} height={40} className="w-10 h-10 rounded-full overflow-hidden object-cover aspect-square" priority />
+                        <Image src="/crabba-logo.png" alt="Crabba Logo" width={40} height={40} className="w-10 h-10 object-contain" priority />
                     </div>
                     <span className="text-xl font-bold tracking-tight">Crabba</span>
                     <span className="px-2 py-0.5 bg-orange-950/50 border border-orange-800/40 rounded-full text-[10px] text-orange-400 font-semibold tracking-wider uppercase">Beta</span>
@@ -268,7 +268,7 @@ export default function LandingClient() {
                 <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-sm text-zinc-600">
                     <div className="flex items-center gap-3">
                         <div className="w-7 h-7 flex items-center justify-center opacity-80">
-                            <Image src="/crabba-logo.png" alt="Crabba Logo" width={28} height={28} className="w-7 h-7 rounded-full overflow-hidden object-cover aspect-square grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all" />
+                            <Image src="/crabba-logo.png" alt="Crabba Logo" width={28} height={28} className="w-7 h-7 object-contain grayscale opacity-60 hover:grayscale-0 hover:opacity-100 transition-all" />
                         </div>
                         <span>© 2026 Crabba. All rights reserved.</span>
                     </div>
