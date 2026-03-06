@@ -15,6 +15,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Crabba",
   description: "Decentralized Social Platform for Creators",
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-icon.png",
+  },
+  openGraph: {
+    images: [{
+      url: "/crabba-logo.png",
+      width: 1200,
+      height: 630,
+      alt: "Crabba Logo"
+    }],
+  },
   other: {
     google: "notranslate",
   },

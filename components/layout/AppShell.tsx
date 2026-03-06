@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter, usePathname } from 'next/navigation';
 import { Home, Compass, Bell, User, Box, Search, LogOut, Settings, WifiOff, RefreshCcw, Loader2 } from 'lucide-react';
 import { Button } from '../ui/button';
@@ -172,10 +173,15 @@ export function AppShell({ children }: AppShellProps) {
                 {/* Left Sidebar - Hidden on mobile (<lg), icon-only on lg, expanded on xl */}
                 <aside className="hidden lg:flex flex-col w-20 xl:w-72 fixed h-screen z-20 border-r border-neutral-800 px-2 py-4 gap-6">
                     <div className="flex items-center justify-center xl:justify-start px-2">
-                        <Link href="/" className="hover:bg-neutral-900 p-2 rounded-full transition-colors">
-                            <div className="w-8 h-8 bg-white rounded-full flex items-center justify-center">
-                                <span className="text-black font-bold text-lg">C</span>
-                            </div>
+                        <Link href="/" className="hover:bg-neutral-900 p-2 rounded-full transition-colors flex items-center justify-center">
+                            <Image
+                                src="/crabba-logo.png"
+                                alt="Crabba Logo"
+                                width={40}
+                                height={40}
+                                priority
+                                className="w-10 h-10 object-contain drop-shadow-md"
+                            />
                         </Link>
                     </div>
 
