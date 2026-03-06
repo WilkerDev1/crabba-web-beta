@@ -99,10 +99,10 @@ export default function LandingClient() {
 
                 {/* Crab Centerpiece */}
                 <div className="relative z-10 mb-10">
-                    <div className="w-28 h-28 bg-gradient-to-br from-orange-500 via-orange-600 to-amber-700 rounded-[2rem] flex items-center justify-center shadow-2xl shadow-orange-800/30 ring-1 ring-orange-500/20">
-                        <span className="text-5xl">🦀</span>
+                    <div className="w-32 h-32 flex items-center justify-center shadow-2xl shadow-orange-800/30 ring-1 ring-orange-500/20 rounded-full bg-orange-500/10">
+                        <Image src="/crabba-logo.png" alt="Crabba Hero Logo" width={128} height={128} className="w-32 h-32 rounded-full overflow-hidden object-cover aspect-square drop-shadow-2xl" priority />
                     </div>
-                    <div className="absolute -inset-4 bg-orange-500/10 rounded-[2.5rem] blur-xl -z-10" />
+                    <div className="absolute -inset-4 bg-orange-500/10 rounded-full blur-xl -z-10" />
                 </div>
 
                 <h1 className="relative z-10 text-5xl sm:text-6xl md:text-8xl font-black tracking-tighter max-w-5xl leading-[0.95]">
