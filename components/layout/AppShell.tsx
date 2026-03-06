@@ -180,7 +180,7 @@ export function AppShell({ children }: AppShellProps) {
                                 width={40}
                                 height={40}
                                 priority
-                                className="w-10 h-10 object-contain drop-shadow-md"
+                                className="w-10 h-10 rounded-full overflow-hidden object-cover aspect-square drop-shadow-md"
                             />
                         </Link>
                     </div>
